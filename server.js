@@ -18,6 +18,8 @@ const isProduction = process.env.NODE_ENV === 'production';
 // Debug environment info
 console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
 console.log(`Production mode: ${isProduction}`);
+console.log(`Port: ${port}`);
+console.log(`Platform: ${process.env.RAILWAY_STATIC_URL ? 'Railway' : 'Other'}`);
 console.log(`Session secret length: ${(process.env.SESSION_SECRET || 'default-secret').length} chars`);
 
 // Set up EJS as the view engine
@@ -33,11 +35,16 @@ app.use(session({
   resave: false,
   saveUninitialized: true,
   cookie: { 
-    secure: isProduction, 
+    secure: isProduction,
     sameSite: 'lax',
     maxAge: 3600000 // 1 hour
   }
 }));
+
+// Ensure directories exist - use relative paths for better compatibility with Railway
+fs.ensureDirSync(path.join(__dirname, 'uploads'));
+fs.ensureDirSync(path.join(__dirname, 'data'));
+fs.ensureDirSync(path.join(__dirname, 'public'));
 
 // Set up file upload storage
 const storage = multer.diskStorage({
@@ -64,13 +71,26 @@ const upload = multer({
   }
 });
 
-// Ensure directories exist
-fs.ensureDirSync(path.join(__dirname, 'uploads'));
-fs.ensureDirSync(path.join(__dirname, 'public'));
+// Store for votes and admin credentials - use Railway_VOLUME_MOUNT_PATH if available
+const dataDirectory = process.env.RAILWAY_VOLUME_MOUNT_PATH 
+  ? path.join(process.env.RAILWAY_VOLUME_MOUNT_PATH, 'data')
+  : path.join(__dirname, 'data');
+const uploadsDirectory = process.env.RAILWAY_VOLUME_MOUNT_PATH
+  ? path.join(process.env.RAILWAY_VOLUME_MOUNT_PATH, 'uploads')
+  : path.join(__dirname, 'uploads');
 
-// Store for votes and admin credentials
-const votesFile = path.join(__dirname, 'data', 'votes.json');
-const adminFile = path.join(__dirname, 'data', 'admin.json');
+// Make sure these directories exist
+fs.ensureDirSync(dataDirectory);
+fs.ensureDirSync(uploadsDirectory);
+
+// Set file paths based on the configured directories
+const votesFile = path.join(dataDirectory, 'votes.json');
+const adminFile = path.join(dataDirectory, 'admin.json');
+
+console.log(`Data directory: ${dataDirectory}`);
+console.log(`Uploads directory: ${uploadsDirectory}`);
+console.log(`Votes file path: ${votesFile}`);
+console.log(`Admin file path: ${adminFile}`);
 
 // Function to initialize admin if file doesn't exist or is corrupted
 const initializeAdmin = () => {
@@ -126,60 +146,91 @@ initializeAdmin();
 // Function to check if a file exists
 function fileExists(filePath) {
   try {
-    return fs.statSync(filePath).isFile();
+    return fs.existsSync(filePath);
   } catch (error) {
+    console.error(`Error checking if file exists at ${filePath}:`, error);
     return false;
   }
 }
 
-// Function to get the voter register file path
-function getVoterRegisterPath() {
-  const baseDir = path.join(__dirname, 'uploads');
-  const csvPath = path.join(baseDir, 'voter_register.csv');
-  const xlsxPath = path.join(baseDir, 'voter_register.xlsx');
-  const xlsPath = path.join(baseDir, 'voter_register.xls');
-  
-  if (fileExists(xlsxPath)) return xlsxPath;
-  if (fileExists(xlsPath)) return xlsPath;
-  if (fileExists(csvPath)) return csvPath;
-  
-  return null;
-}
-
-// Function to read voter register
+// Function to get voter register details
 async function getVoterRegister() {
-  const registerPath = getVoterRegisterPath();
-  if (!registerPath) {
+  try {
+    console.log(`Looking for voter register in: ${uploadsDirectory}`);
+    
+    // Check all possible file names and extensions
+    const possibleFiles = [
+      path.join(uploadsDirectory, 'voter_register.xlsx'),
+      path.join(uploadsDirectory, 'voter_register.xls'),
+      path.join(uploadsDirectory, 'voter_register.csv')
+    ];
+    
+    // Debug info
+    possibleFiles.forEach(file => {
+      console.log(`Checking for: ${file}, exists: ${fileExists(file)}`);
+    });
+    
+    // Try Excel files first
+    for (const filePath of possibleFiles.filter(p => p.endsWith('.xlsx') || p.endsWith('.xls'))) {
+      if (fileExists(filePath)) {
+        console.log(`Found Excel voter register at: ${filePath}`);
+        return await parseExcelVoterRegister(filePath);
+      }
+    }
+    
+    // Then try CSV
+    const csvPath = possibleFiles.find(p => p.endsWith('.csv'));
+    if (csvPath && fileExists(csvPath)) {
+      console.log(`Found CSV voter register at: ${csvPath}`);
+      return await parseCSVVoterRegister(csvPath);
+    }
+    
+    console.log("No voter register found. Returning empty array.");
+    return [];
+  } catch (error) {
+    console.error('Error getting voter register:', error);
     return [];
   }
-  
-  const fileExt = path.extname(registerPath).toLowerCase();
-  
-  if (fileExt === '.csv') {
-    // CSV processing
-    return new Promise((resolve, reject) => {
+}
+
+// Function to parse Excel voter register
+async function parseExcelVoterRegister(filePath) {
+  try {
+    console.log(`Parsing Excel file: ${filePath}`);
+    const workbook = XLSX.readFile(filePath);
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    const data = XLSX.utils.sheet_to_json(worksheet);
+    console.log(`Successfully parsed Excel file with ${data.length} records`);
+    return data;
+  } catch (error) {
+    console.error('Error parsing Excel voter register:', error);
+    return [];
+  }
+}
+
+// Function to parse CSV voter register
+async function parseCSVVoterRegister(filePath) {
+  return new Promise((resolve, reject) => {
+    try {
+      console.log(`Parsing CSV file: ${filePath}`);
       const results = [];
-      fs.createReadStream(registerPath)
+      fs.createReadStream(filePath)
         .pipe(csvParser())
         .on('data', (data) => results.push(data))
-        .on('end', () => resolve(results))
-        .on('error', (error) => reject(error));
-    });
-  } else if (fileExt === '.xlsx' || fileExt === '.xls') {
-    // Excel processing
-    try {
-      const workbook = XLSX.readFile(registerPath);
-      const sheetName = workbook.SheetNames[0];
-      const worksheet = workbook.Sheets[sheetName];
-      const data = XLSX.utils.sheet_to_json(worksheet);
-      return data;
+        .on('end', () => {
+          console.log(`Successfully parsed CSV file with ${results.length} records`);
+          resolve(results);
+        })
+        .on('error', (error) => {
+          console.error('Error parsing CSV:', error);
+          reject(error);
+        });
     } catch (error) {
-      console.error('Error reading Excel file:', error);
-      throw error;
+      console.error('Error parsing CSV voter register:', error);
+      resolve([]);
     }
-  } else {
-    throw new Error('Unsupported file format');
-  }
+  });
 }
 
 // Function to find membership number by name
