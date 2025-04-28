@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="400" height="400" version="1.1" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+  <rect width="400" height="400" fill="#e6e6e6"/>
+  <g transform="matrix(1.3333 0 0 -1.3333 200 200)">
+    <path d="m-37.5 0c0-20.711 16.789-37.5 37.5-37.5s37.5 16.789 37.5 37.5-16.789 37.5-37.5 37.5-37.5-16.789-37.5-37.5" fill="#adadad"/>
+    <path d="m-16.25 50c0-15.355 16.789-27.5 37.5-27.5s37.5 12.145 37.5 27.5-16.789 27.5-37.5 27.5-37.5-12.145-37.5-27.5" transform="translate(-21.25 -50)" fill="#adadad"/>
+  </g>
+  <text x="200" y="270" fill="#444444" font-family="Arial" font-size="24" text-anchor="middle">Candidate Photo</text>
+</svg>

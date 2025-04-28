@@ -281,6 +281,38 @@ async function hasAlreadyVoted(membershipNumber) {
   }
 }
 
+// Function to check if an email has already voted
+async function hasEmailAlreadyVoted(email) {
+  try {
+    const votes = fs.readJsonSync(votesFile);
+    console.log(`Checking if email "${email}" has already voted...`);
+    console.log(`Found ${votes.length} total votes in the system`);
+    
+    // Normalize the email to lowercase for case-insensitive comparison
+    const normalizedEmail = email.toLowerCase().trim();
+    
+    // Check if email already exists in votes
+    const emailExists = votes.some(vote => {
+      const voteEmail = vote.email.toLowerCase().trim();
+      const matches = voteEmail === normalizedEmail;
+      console.log(`Comparing: "${voteEmail}" with "${normalizedEmail}": ${matches}`);
+      return matches;
+    });
+    
+    console.log(`Email "${email}" already voted: ${emailExists}`);
+    return emailExists;
+  } catch (error) {
+    console.error('Error checking if email already voted:', error);
+    return false;
+  }
+}
+
+// Function to validate email format
+function isValidEmail(email) {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailRegex.test(email);
+}
+
 // Function to record a vote
 async function recordVote(voteData) {
   try {
@@ -345,19 +377,45 @@ app.get('/vote', (req, res) => {
   res.render('vote');
 });
 
-app.get('/forgot-membership', (req, res) => {
-  res.render('forgot-membership');
-});
+// Comment out the forgot-membership route for security reasons
+// app.get('/forgot-membership', (req, res) => {
+//   res.render('forgot-membership');
+// });
 
 // API endpoint to validate membership number
 app.post('/api/validate-membership', async (req, res) => {
-  const { membershipNumber } = req.body;
+  const { membershipNumber, email } = req.body;
   
   if (!membershipNumber) {
     return res.status(400).json({ valid: false, message: 'Membership number is required' });
   }
   
+  if (!email) {
+    return res.status(400).json({ valid: false, message: 'Email address is required' });
+  }
+  
+  // Validate email format
+  if (!isValidEmail(email)) {
+    return res.status(400).json({ 
+      valid: false, 
+      message: 'Invalid email format. Please enter a valid email address.' 
+    });
+  }
+  
   try {
+    // Check if email has already been used - THIS CHECK MUST BE FIRST
+    const emailUsed = await hasEmailAlreadyVoted(email);
+    console.log(`Email used check result: ${emailUsed}`);
+    
+    if (emailUsed) {
+      console.log(`Rejecting validation because email ${email} has already been used`);
+      return res.json({ 
+        valid: false, 
+        message: 'This email address has already been used to vote. Each voter must use a unique email.' 
+      });
+    }
+    
+    // Only perform these checks if email hasn't been used
     const isValid = await isValidMembershipNumber(membershipNumber);
     
     if (!isValid) {
@@ -376,6 +434,7 @@ app.post('/api/validate-membership', async (req, res) => {
       });
     }
     
+    console.log(`Validation successful for membership: ${membershipNumber}, email: ${email}`);
     return res.json({ valid: true });
   } catch (error) {
     console.error('Validation error:', error);
@@ -386,36 +445,36 @@ app.post('/api/validate-membership', async (req, res) => {
   }
 });
 
-// API endpoint to find membership by name
-app.post('/api/find-membership', async (req, res) => {
-  const { name } = req.body;
-  
-  if (!name) {
-    return res.status(400).json({ success: false, message: 'Name is required' });
-  }
-  
-  try {
-    const matches = await findMembershipByName(name);
-    
-    if (matches.length === 0) {
-      return res.json({ 
-        success: false, 
-        message: 'No membership found with that name. Please check spelling or contact an administrator.' 
-      });
-    }
-    
-    return res.json({ 
-      success: true, 
-      matches 
-    });
-  } catch (error) {
-    console.error('Find membership error:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: 'An error occurred while searching. Please try again.' 
-    });
-  }
-});
+// API endpoint to find membership by name - commented out for security reasons
+// app.post('/api/find-membership', async (req, res) => {
+//   const { name } = req.body;
+//   
+//   if (!name) {
+//     return res.status(400).json({ success: false, message: 'Name is required' });
+//   }
+//   
+//   try {
+//     const matches = await findMembershipByName(name);
+//     
+//     if (matches.length === 0) {
+//       return res.json({ 
+//         success: false, 
+//         message: 'No membership found with that name. Please check spelling or contact an administrator.' 
+//       });
+//     }
+//     
+//     return res.json({ 
+//       success: true, 
+//       matches 
+//     });
+//   } catch (error) {
+//     console.error('Find membership error:', error);
+//     return res.status(500).json({ 
+//       success: false, 
+//       message: 'An error occurred while searching. Please try again.' 
+//     });
+//   }
+// });
 
 // API endpoint to submit a vote
 app.post('/api/submit-vote', async (req, res) => {
@@ -423,6 +482,14 @@ app.post('/api/submit-vote', async (req, res) => {
   
   if (!membershipNumber || !email || !votes) {
     return res.status(400).json({ success: false, message: 'Missing required fields' });
+  }
+  
+  // Validate email format
+  if (!isValidEmail(email)) {
+    return res.status(400).json({ 
+      success: false, 
+      message: 'Invalid email format. Please enter a valid email address.' 
+    });
   }
   
   try {
@@ -441,6 +508,16 @@ app.post('/api/submit-vote', async (req, res) => {
       return res.json({ 
         success: false, 
         message: 'This membership number has already voted.' 
+      });
+    }
+    
+    // Check if email has already been used to vote
+    const emailUsed = await hasEmailAlreadyVoted(email);
+    
+    if (emailUsed) {
+      return res.json({ 
+        success: false, 
+        message: 'This email address has already been used to vote. Each voter must use a unique email.' 
       });
     }
     
@@ -516,15 +593,29 @@ app.get('/api/stats', requireAuth, async (req, res) => {
     const voteCounts = {};
     votes.forEach(vote => {
       Object.entries(vote.votes).forEach(([question, answer]) => {
+        // Skip old election positions (president, vicePresident, budgetProposal)
+        if (question === 'president' || question === 'vicePresident' || question === 'budgetProposal') {
+          return; // Skip these positions
+        }
+        
         if (!voteCounts[question]) {
           voteCounts[question] = {};
         }
         
-        if (!voteCounts[question][answer]) {
-          voteCounts[question][answer] = 0;
+        // Handle sidemen array specially
+        if (question === 'sidemen' && Array.isArray(answer)) {
+          answer.forEach(option => {
+            if (!voteCounts[question][option]) {
+              voteCounts[question][option] = 0;
+            }
+            voteCounts[question][option]++;
+          });
+        } else {
+          if (!voteCounts[question][answer]) {
+            voteCounts[question][answer] = 0;
+          }
+          voteCounts[question][answer]++;
         }
-        
-        voteCounts[question][answer]++;
       });
     });
     
