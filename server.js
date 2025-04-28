@@ -5,6 +5,7 @@ const path = require('path');
 const csvParser = require('csv-parser');
 const multer = require('multer');
 const session = require('express-session');
+const FileStore = require('session-file-store')(session); // Add file store for sessions
 const bcrypt = require('bcryptjs');
 const json2csv = require('json2csv').Parser;
 const XLSX = require('xlsx');
@@ -44,7 +45,14 @@ app.use(session({
     maxAge: 3600000, // 1 hour
     // Allow cookie to work on Render's domain
     domain: process.env.RENDER ? '.onrender.com' : undefined
-  }
+  },
+  store: new FileStore({
+    path: process.env.RENDER ? '/tmp/sessions' : path.join(__dirname, 'data', 'sessions'),
+    ttl: 86400, // 1 day
+    retries: 0,
+    logFn: function(){}, // Disable session store logs
+    secret: process.env.SESSION_SECRET || 'election-voter-validation-secret'
+  })
 }));
 
 // Ensure directories exist - use relative paths for better compatibility with Railway
@@ -430,9 +438,13 @@ async function recordVote(voteData) {
 
 // Authentication middleware
 function requireAuth(req, res, next) {
+  console.log(`Session auth check: ${req.session.isAuthenticated ? 'Authenticated' : 'Not authenticated'}`);
+  
   if (req.session.isAuthenticated) {
     return next();
   }
+  
+  console.log('User not authenticated, redirecting to login');
   res.redirect('/login');
 }
 
@@ -442,6 +454,11 @@ app.get('/', (req, res) => {
 });
 
 app.get('/login', (req, res) => {
+  // If already authenticated, redirect to admin
+  if (req.session.isAuthenticated) {
+    console.log('User already authenticated, redirecting to admin');
+    return res.redirect('/admin');
+  }
   res.render('login', { error: null });
 });
 
@@ -488,6 +505,7 @@ app.get('/logout', (req, res) => {
 });
 
 app.get('/admin', requireAuth, (req, res) => {
+  console.log('Admin dashboard accessed');
   res.render('admin');
 });
 
