@@ -13,6 +13,12 @@ const ExcelJS = require('exceljs');
 // Initialize Express app
 const app = express();
 const port = process.env.PORT || 3000;
+const isProduction = process.env.NODE_ENV === 'production';
+
+// Debug environment info
+console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+console.log(`Production mode: ${isProduction}`);
+console.log(`Session secret length: ${(process.env.SESSION_SECRET || 'default-secret').length} chars`);
 
 // Set up EJS as the view engine
 app.set('view engine', 'ejs');
@@ -27,7 +33,8 @@ app.use(session({
   resave: false,
   saveUninitialized: true,
   cookie: { 
-    secure: process.env.NODE_ENV === 'production', 
+    secure: isProduction, 
+    sameSite: 'lax',
     maxAge: 3600000 // 1 hour
   }
 }));
@@ -59,27 +66,62 @@ const upload = multer({
 
 // Ensure directories exist
 fs.ensureDirSync(path.join(__dirname, 'uploads'));
-fs.ensureDirSync(path.join(__dirname, 'data'));
 fs.ensureDirSync(path.join(__dirname, 'public'));
 
 // Store for votes and admin credentials
 const votesFile = path.join(__dirname, 'data', 'votes.json');
 const adminFile = path.join(__dirname, 'data', 'admin.json');
 
+// Function to initialize admin if file doesn't exist or is corrupted
+const initializeAdmin = () => {
+  try {
+    // Try to read the existing admin file
+    if (fs.existsSync(adminFile)) {
+      const admin = fs.readJsonSync(adminFile);
+      // Check if file has valid data
+      if (admin && admin.username && admin.passwordHash) {
+        console.log("Admin file exists and contains valid data.");
+        return;
+      } else {
+        console.log("Admin file exists but contains invalid data. Recreating...");
+      }
+    } else {
+      console.log("Admin file doesn't exist. Creating default admin...");
+    }
+    
+    // Create data directory if it doesn't exist
+    if (!fs.existsSync(path.dirname(adminFile))) {
+      fs.mkdirpSync(path.dirname(adminFile));
+      console.log("Created data directory structure");
+    }
+    
+    // Create default admin credentials (username: admin, password: admin123)
+    const defaultAdmin = {
+      username: 'admin',
+      // Hash the password
+      passwordHash: bcrypt.hashSync('admin123', 10)
+    };
+    
+    fs.writeJsonSync(adminFile, defaultAdmin);
+    console.log("Default admin created successfully");
+  } catch (error) {
+    console.error("Error initializing admin:", error);
+  }
+};
+
 // Initialize files if they don't exist
 if (!fs.existsSync(votesFile)) {
+  // Create data directory if it doesn't exist
+  if (!fs.existsSync(path.dirname(votesFile))) {
+    fs.mkdirpSync(path.dirname(votesFile));
+    console.log("Created data directory structure for votes");
+  }
   fs.writeJsonSync(votesFile, []);
+  console.log("Votes file initialized");
 }
 
-if (!fs.existsSync(adminFile)) {
-  // Create default admin credentials (username: admin, password: admin123)
-  const defaultAdmin = {
-    username: 'admin',
-    // Hash the password
-    passwordHash: bcrypt.hashSync('admin123', 10)
-  };
-  fs.writeJsonSync(adminFile, defaultAdmin);
-}
+// Initialize admin (with improved error handling)
+initializeAdmin();
 
 // Function to check if a file exists
 function fileExists(filePath) {
@@ -350,17 +392,27 @@ app.post('/login', async (req, res) => {
   const { username, password } = req.body;
   
   try {
+    // Check if admin file exists, initialize if not
+    if (!fs.existsSync(adminFile)) {
+      console.log("Admin file not found during login attempt, initializing...");
+      initializeAdmin();
+    }
+    
+    // Read admin credentials
     const admin = fs.readJsonSync(adminFile);
+    console.log(`Login attempt for username: ${username}`);
     
     if (username === admin.username && bcrypt.compareSync(password, admin.passwordHash)) {
+      console.log("Login successful");
       req.session.isAuthenticated = true;
       return res.redirect('/admin');
     }
     
+    console.log("Login failed: invalid credentials");
     res.render('login', { error: 'Invalid username or password' });
   } catch (error) {
-    console.error('Login error:', error);
-    res.render('login', { error: 'An error occurred during login' });
+    console.error("Login error:", error);
+    res.render('login', { error: 'An error occurred. Please try again later.' });
   }
 });
 
