@@ -15,11 +15,14 @@ const app = express();
 const port = process.env.PORT || 3000;
 const isProduction = process.env.NODE_ENV === 'production';
 
+// Important for production with Render - trust proxy
+app.set('trust proxy', 1);
+
 // Debug environment info
 console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
 console.log(`Production mode: ${isProduction}`);
 console.log(`Port: ${port}`);
-console.log(`Platform: ${process.env.RAILWAY_STATIC_URL ? 'Railway' : 'Other'}`);
+console.log(`Platform: ${process.env.RENDER ? 'Render' : (process.env.RAILWAY_STATIC_URL ? 'Railway' : 'Other')}`);
 console.log(`Session secret length: ${(process.env.SESSION_SECRET || 'default-secret').length} chars`);
 
 // Set up EJS as the view engine
@@ -35,9 +38,12 @@ app.use(session({
   resave: false,
   saveUninitialized: true,
   cookie: { 
-    secure: isProduction,
+    // Only set secure: true if we're behind HTTPS (detected via X-Forwarded-Proto)
+    secure: isProduction && process.env.RENDER ? false : isProduction,
     sameSite: 'lax',
-    maxAge: 3600000 // 1 hour
+    maxAge: 3600000, // 1 hour
+    // Allow cookie to work on Render's domain
+    domain: process.env.RENDER ? '.onrender.com' : undefined
   }
 }));
 
@@ -456,11 +462,20 @@ app.post('/login', async (req, res) => {
     if (username === admin.username && bcrypt.compareSync(password, admin.passwordHash)) {
       console.log("Login successful");
       req.session.isAuthenticated = true;
-      return res.redirect('/admin');
+      
+      // Force save session before redirect
+      req.session.save(err => {
+        if (err) {
+          console.error("Session save error:", err);
+          return res.render('login', { error: 'Session error. Please try again.' });
+        }
+        console.log("Session saved successfully, redirecting to admin");
+        return res.redirect('/admin');
+      });
+    } else {
+      console.log("Login failed: invalid credentials");
+      res.render('login', { error: 'Invalid username or password' });
     }
-    
-    console.log("Login failed: invalid credentials");
-    res.render('login', { error: 'Invalid username or password' });
   } catch (error) {
     console.error("Login error:", error);
     res.render('login', { error: 'An error occurred. Please try again later.' });
