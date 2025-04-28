@@ -15,6 +15,7 @@ const ExcelJS = require('exceljs');
 const app = express();
 const port = process.env.PORT || 3000;
 const isProduction = process.env.NODE_ENV === 'production';
+const isRender = process.env.RENDER ? true : false;
 
 // Important for production with Render - trust proxy
 app.set('trust proxy', 1);
@@ -26,6 +27,13 @@ console.log(`Port: ${port}`);
 console.log(`Platform: ${process.env.RENDER ? 'Render' : (process.env.RAILWAY_STATIC_URL ? 'Railway' : 'Other')}`);
 console.log(`Session secret length: ${(process.env.SESSION_SECRET || 'default-secret').length} chars`);
 
+// RENDER BYPASS: Create a simplified auth store since Render has issues with session cookies
+const authStore = { 
+  adminAuthenticated: false,
+  lastLoginTime: null,
+  loginIP: null
+};
+
 // Set up EJS as the view engine
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
@@ -34,26 +42,45 @@ app.set('views', path.join(__dirname, 'views'));
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Session middleware
 app.use(session({
   secret: process.env.SESSION_SECRET || 'election-voter-validation-secret',
-  resave: false,
+  resave: true,
   saveUninitialized: true,
   cookie: { 
-    // Only set secure: true if we're behind HTTPS (detected via X-Forwarded-Proto)
-    secure: isProduction && process.env.RENDER ? false : isProduction,
+    // Never use secure cookies on Render regardless of environment
+    secure: isRender ? false : isProduction,
     sameSite: 'lax',
     maxAge: 3600000, // 1 hour
-    // Allow cookie to work on Render's domain
-    domain: process.env.RENDER ? '.onrender.com' : undefined
+    // Don't set domain for Render
+    domain: undefined
   },
   store: new FileStore({
-    path: process.env.RENDER ? '/tmp/sessions' : path.join(__dirname, 'data', 'sessions'),
+    path: isRender ? '/tmp/sessions' : path.join(__dirname, 'data', 'sessions'),
     ttl: 86400, // 1 day
     retries: 0,
-    logFn: function(){}, // Disable session store logs
-    secret: process.env.SESSION_SECRET || 'election-voter-validation-secret'
+    logFn: function(){} // Disable session store logs
   })
 }));
+
+// Simplified alternative auth check middleware for Render
+function renderAuth(req, res, next) {
+  const clientIP = req.ip || req.connection.remoteAddress;
+  console.log(`Auth check - Session: ${req.session.isAuthenticated ? 'Yes' : 'No'}, Global: ${authStore.adminAuthenticated ? 'Yes' : 'No'}, IP: ${clientIP}, Last login IP: ${authStore.loginIP}`);
+  
+  // Use either normal session or global auth store on Render
+  if (req.session.isAuthenticated || (isRender && authStore.adminAuthenticated && clientIP === authStore.loginIP)) {
+    if (!req.session.isAuthenticated && isRender) {
+      console.log("Using global auth store instead of session");
+      req.session.isAuthenticated = true;
+    }
+    return next();
+  }
+  
+  console.log('User not authenticated, redirecting to login');
+  res.redirect('/login');
+}
 
 // Ensure directories exist - use relative paths for better compatibility with Railway
 fs.ensureDirSync(path.join(__dirname, 'uploads'));
@@ -267,8 +294,8 @@ async function findMembershipByName(name) {
         voter['NAME'] || 
         voter['Name'] || 
         voter['name'] ||
-        voter['Full Name'] ||
-        voter['FULL NAME'] ||
+        voter['Full Name'] || 
+        voter['FULL NAME'] || 
         voter['fullName'];
       
       console.log('Voter record:', voter);
@@ -464,6 +491,7 @@ app.get('/login', (req, res) => {
 
 app.post('/login', async (req, res) => {
   const { username, password } = req.body;
+  const clientIP = req.ip || req.connection.remoteAddress;
   
   try {
     // Check if admin file exists, initialize if not
@@ -474,11 +502,21 @@ app.post('/login', async (req, res) => {
     
     // Read admin credentials
     const admin = fs.readJsonSync(adminFile);
-    console.log(`Login attempt for username: ${username}`);
+    console.log(`Login attempt for username: ${username} from IP: ${clientIP}`);
     
     if (username === admin.username && bcrypt.compareSync(password, admin.passwordHash)) {
       console.log("Login successful");
+      
+      // Set both session and global auth for Render
       req.session.isAuthenticated = true;
+      
+      // For Render, also set the global auth store
+      if (isRender) {
+        authStore.adminAuthenticated = true;
+        authStore.lastLoginTime = new Date().toISOString();
+        authStore.loginIP = clientIP;
+        console.log(`Global auth store updated: ${JSON.stringify(authStore)}`);
+      }
       
       // Force save session before redirect
       req.session.save(err => {
@@ -487,7 +525,14 @@ app.post('/login', async (req, res) => {
           return res.render('login', { error: 'Session error. Please try again.' });
         }
         console.log("Session saved successfully, redirecting to admin");
-        return res.redirect('/admin');
+        
+        // In Render environment, use a direct rendering approach instead of redirect
+        if (isRender) {
+          console.log("Using direct render approach for Render environment");
+          return res.render('admin');
+        } else {
+          return res.redirect('/admin');
+        }
       });
     } else {
       console.log("Login failed: invalid credentials");
@@ -504,7 +549,7 @@ app.get('/logout', (req, res) => {
   res.redirect('/');
 });
 
-app.get('/admin', requireAuth, (req, res) => {
+app.get('/admin', renderAuth, (req, res) => {
   console.log('Admin dashboard accessed');
   res.render('admin');
 });
@@ -680,7 +725,7 @@ app.post('/api/submit-vote', async (req, res) => {
 });
 
 // API endpoint to upload voter register
-app.post('/api/upload-register', requireAuth, upload.single('register'), async (req, res) => {
+app.post('/api/upload-register', renderAuth, upload.single('register'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ success: false, message: 'No file uploaded' });
   }
@@ -714,7 +759,7 @@ app.post('/api/upload-register', requireAuth, upload.single('register'), async (
 });
 
 // API endpoint to get voting statistics
-app.get('/api/stats', requireAuth, async (req, res) => {
+app.get('/api/stats', renderAuth, async (req, res) => {
   try {
     const votes = fs.readJsonSync(votesFile);
     const register = await getVoterRegister();
@@ -768,7 +813,7 @@ app.get('/api/stats', requireAuth, async (req, res) => {
 });
 
 // API endpoint to export votes as Excel
-app.get('/api/export-votes', requireAuth, async (req, res) => {
+app.get('/api/export-votes', renderAuth, async (req, res) => {
   try {
     const votes = fs.readJsonSync(votesFile);
     
@@ -841,7 +886,7 @@ app.get('/api/export-votes', requireAuth, async (req, res) => {
 });
 
 // API endpoint to change admin password
-app.post('/api/change-password', requireAuth, async (req, res) => {
+app.post('/api/change-password', renderAuth, async (req, res) => {
   const { currentPassword, newPassword } = req.body;
   
   if (!currentPassword || !newPassword) {
