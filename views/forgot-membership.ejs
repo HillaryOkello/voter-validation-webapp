@@ -1,0 +1,144 @@
+<%- include('partials/header', {title: 'Find Your Membership Number - Election Voting System'}) %>
+
+<div class="header">
+    <h1>Find Your Membership Number</h1>
+    <p class="lead">Enter your name to find your membership number</p>
+</div>
+
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="form-container">
+            <div id="searchSection">
+                <form id="searchForm">
+                    <div class="mb-3">
+                        <label for="name" class="form-label">Your Name</label>
+                        <input type="text" class="form-control" id="name" required>
+                        <div class="form-text">Enter your full name or part of your name as it appears in the voter register.</div>
+                    </div>
+                    
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary">Search</button>
+                    </div>
+                    
+                    <div id="searchAlert" class="alert mt-3 hidden"></div>
+                </form>
+            </div>
+            
+            <div id="resultsSection" class="hidden mt-4">
+                <h3>Search Results</h3>
+                <p>We found the following matches for your name. Click on your membership number to proceed to voting.</p>
+                
+                <div class="table-responsive">
+                    <table class="table table-bordered table-hover">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Name</th>
+                                <th>Membership Number</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="resultsTable">
+                            <!-- Results will be added here -->
+                        </tbody>
+                    </table>
+                </div>
+                
+                <button id="backToSearch" class="btn btn-secondary">Search Again</button>
+            </div>
+            
+            <div class="mt-4 text-center">
+                <a href="/vote" class="btn btn-link">Back to Voting</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const searchForm = document.getElementById('searchForm');
+        const searchSection = document.getElementById('searchSection');
+        const resultsSection = document.getElementById('resultsSection');
+        const resultsTable = document.getElementById('resultsTable');
+        const searchAlert = document.getElementById('searchAlert');
+        const backToSearch = document.getElementById('backToSearch');
+        
+        searchForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const name = document.getElementById('name').value;
+            
+            if (!name.trim()) {
+                showSearchAlert('Please enter a name to search', 'danger');
+                return;
+            }
+            
+            searchAlert.classList.add('hidden');
+            
+            // Search for membership by name
+            fetch('/api/find-membership', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ name })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (!data.success) {
+                    showSearchAlert(data.message, 'danger');
+                    return;
+                }
+                
+                // Display results
+                displayResults(data.matches);
+                
+                // Show results section
+                searchSection.classList.add('hidden');
+                resultsSection.classList.remove('hidden');
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showSearchAlert('An error occurred during search. Please try again.', 'danger');
+            });
+        });
+        
+        backToSearch.addEventListener('click', function() {
+            resultsSection.classList.add('hidden');
+            searchSection.classList.remove('hidden');
+        });
+        
+        function showSearchAlert(message, type) {
+            searchAlert.textContent = message;
+            searchAlert.className = `alert alert-${type} mt-3`;
+        }
+        
+        function displayResults(matches) {
+            resultsTable.innerHTML = '';
+            
+            matches.forEach(match => {
+                const row = document.createElement('tr');
+                
+                const nameCell = document.createElement('td');
+                nameCell.textContent = match.name;
+                
+                const membershipCell = document.createElement('td');
+                membershipCell.textContent = match.membershipNumber;
+                
+                const actionCell = document.createElement('td');
+                const actionButton = document.createElement('a');
+                actionButton.className = 'btn btn-primary btn-sm';
+                actionButton.textContent = 'Use This Number';
+                actionButton.href = `/vote?membershipNumber=${encodeURIComponent(match.membershipNumber)}`;
+                actionCell.appendChild(actionButton);
+                
+                row.appendChild(nameCell);
+                row.appendChild(membershipCell);
+                row.appendChild(actionCell);
+                
+                resultsTable.appendChild(row);
+            });
+        }
+    });
+</script>
+
+<%- include('partials/footer') %>

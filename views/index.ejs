@@ -1,0 +1,55 @@
+<%- include('partials/header', {title: 'Home - Election Voting System'}) %>
+
+<div class="header">
+    <h1>Election Voting System</h1>
+    <p class="lead">A secure system for validating voter membership and collecting election ballots</p>
+</div>
+
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="form-container">
+            <h2>For Voters</h2>
+            <p>If you are a registered voter with a valid membership number, you can cast your vote in the current election.</p>
+            <p>Your membership number will be validated in real-time against our voter register.</p>
+            <div class="d-grid gap-2">
+                <a href="/vote" class="btn btn-primary btn-lg">Cast Your Vote</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="form-container">
+            <h2>How It Works</h2>
+            <div class="row">
+                <div class="col-md-4">
+                    <div class="card mb-4">
+                        <div class="card-body">
+                            <h5 class="card-title">1. Voter Authentication</h5>
+                            <p class="card-text">Enter your membership number to verify your eligibility to vote in this election.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card mb-4">
+                        <div class="card-body">
+                            <h5 class="card-title">2. Cast Your Vote</h5>
+                            <p class="card-text">Once verified, you can securely cast your vote on the election ballot.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card mb-4">
+                        <div class="card-body">
+                            <h5 class="card-title">3. Confirmation</h5>
+                            <p class="card-text">Receive immediate confirmation that your vote has been recorded successfully.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<%- include('partials/footer') %>

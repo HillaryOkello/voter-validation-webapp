@@ -1,0 +1,47 @@
+<%- include('partials/header', {title: 'Admin Login - Election Voting System'}) %>
+
+<div class="header">
+    <h1>Admin Login</h1>
+    <p class="lead">Please log in to access the admin dashboard</p>
+</div>
+
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="form-container">
+            <% if (error) { %>
+                <div class="alert alert-danger">
+                    <%= error %>
+                </div>
+            <% } %>
+            
+            <div class="mb-4">
+                <h4>Administrator Dashboard</h4>
+                <p>Election administrators can upload the voter register, monitor voting statistics, and manage the election.</p>
+                <p>The admin panel provides real-time insights into voting patterns and participation rates.</p>
+            </div>
+            
+            <form action="/login" method="POST">
+                <div class="mb-3">
+                    <label for="username" class="form-label">Username</label>
+                    <input type="text" class="form-control" id="username" name="username" required>
+                </div>
+                
+                <div class="mb-3">
+                    <label for="password" class="form-label">Password</label>
+                    <input type="password" class="form-control" id="password" name="password" required>
+                    <div class="form-text">Default credentials: username: admin, password: admin123</div>
+                </div>
+                
+                <div class="d-grid gap-2">
+                    <button type="submit" class="btn btn-primary">Login</button>
+                </div>
+            </form>
+            
+            <div class="mt-3 text-center">
+                <a href="/" class="btn btn-link">Back to Home</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<%- include('partials/footer') %>

@@ -1,0 +1,536 @@
+<%- include('partials/header', {title: 'Admin - Election Voting System'}) %>
+
+<div class="header">
+    <h1>Election Admin Panel</h1>
+    <p class="lead">Manage voter register and view election statistics</p>
+    <div class="d-flex justify-content-end">
+        <a href="/logout" class="btn btn-outline-secondary btn-sm">Logout</a>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-5">
+        <div class="form-container">
+            <h3>Upload Voter Register</h3>
+            <p>Upload an Excel (XLSX/XLS) or CSV file containing the voter register. The file must include a column named "MMC NO." or "Membership Number".</p>
+
+            <form id="uploadForm" enctype="multipart/form-data">
+                <div class="mb-3">
+                    <label for="registerFile" class="form-label">Voter Register File</label>
+                    <input class="form-control" type="file" id="registerFile" name="register" accept=".csv,.xlsx,.xls" required>
+                    <div class="form-text">Supported formats: Excel (.xlsx, .xls) and CSV (.csv)</div>
+                </div>
+                <button type="submit" class="btn btn-primary">Upload Register</button>
+                <div id="uploadAlert" class="alert mt-3 hidden"></div>
+            </form>
+        </div>
+
+        <div class="form-container mt-4">
+            <h3>Export Votes</h3>
+            <p>Download all votes as an Excel file for verification or analysis.</p>
+
+            <div class="d-grid gap-2">
+                <a href="/api/export-votes" class="btn btn-success" download>Download Votes Excel</a>
+            </div>
+        </div>
+
+        <div class="form-container mt-4">
+            <h3>Change Admin Password</h3>
+            <form id="passwordForm">
+                <div class="mb-3">
+                    <label for="currentPassword" class="form-label">Current Password</label>
+                    <input type="password" class="form-control" id="currentPassword" required>
+                </div>
+                <div class="mb-3">
+                    <label for="newPassword" class="form-label">New Password</label>
+                    <input type="password" class="form-control" id="newPassword" required>
+                </div>
+                <div class="mb-3">
+                    <label for="confirmPassword" class="form-label">Confirm New Password</label>
+                    <input type="password" class="form-control" id="confirmPassword" required>
+                </div>
+                <button type="submit" class="btn btn-warning">Change Password</button>
+                <div id="passwordAlert" class="alert mt-3 hidden"></div>
+            </form>
+        </div>
+    </div>
+
+    <div class="col-md-7">
+        <div class="form-container">
+            <h3>Voting Statistics</h3>
+            <div id="statsLoading" class="text-center">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p>Loading statistics...</p>
+            </div>
+
+            <div id="statsContent" class="hidden">
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <h5 class="card-title">Participation</h5>
+                        <div class="row">
+                            <div class="col-md-4 text-center">
+                                <h2 id="totalVoters">0</h2>
+                                <p>Total Voters</p>
+                            </div>
+                            <div class="col-md-4 text-center">
+                                <h2 id="totalVotes">0</h2>
+                                <p>Votes Cast</p>
+                            </div>
+                            <div class="col-md-4 text-center">
+                                <h2 id="votingPercentage">0%</h2>
+                                <p>Participation</p>
+                            </div>
+                        </div>
+                        <!-- Participation Chart -->
+                        <div class="mt-3" style="width: 35%; margin: 0 auto;">
+                            <canvas id="participationChart" height="90"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="resultsContainer">
+                    <!-- Results will be dynamically added here -->
+                </div>
+            </div>
+
+            <div id="statsError" class="alert alert-danger mt-3 hidden">
+                Failed to load statistics. Please try again later.
+            </div>
+
+            <button id="refreshStats" class="btn btn-secondary mt-3">Refresh Statistics</button>
+        </div>
+    </div>
+</div>
+
+<div class="form-container mt-4">
+    <h3>Sample Voter Register Format</h3>
+    <p>Your Excel or CSV file should follow this format:</p>
+
+    <div class="table-responsive">
+        <table class="table table-bordered">
+            <thead>
+                <tr>
+                    <th>M/SHIP NO.</th>
+                    <th>TEL NO.</th>
+                    <th>NAME</th>
+                    <th>Additional Fields...</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>1464</td>
+                    <td>0735 720 877</td>
+                    <td>OUMA KAWERE</td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>0316</td>
+                    <td>0722 302 679</td>
+                    <td>JOSEPHINE PAMELA ADHIAMBO</td>
+                    <td></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="alert alert-info">
+        <strong>Note:</strong> The system recognizes the "M/SHIP NO." column as the membership number and "NAME" column for member names. Make sure these columns are properly labeled in your file.
+    </div>
+</div>
+
+<!-- Include Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js"></script>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const uploadForm = document.getElementById('uploadForm');
+        const uploadAlert = document.getElementById('uploadAlert');
+        const statsLoading = document.getElementById('statsLoading');
+        const statsContent = document.getElementById('statsContent');
+        const statsError = document.getElementById('statsError');
+        const refreshStats = document.getElementById('refreshStats');
+        const resultsContainer = document.getElementById('resultsContainer');
+        const passwordForm = document.getElementById('passwordForm');
+        const passwordAlert = document.getElementById('passwordAlert');
+
+        // Chart objects
+        let participationChart = null;
+        let resultCharts = {};
+
+        // Load initial statistics
+        loadStats();
+
+        uploadForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+
+            const formData = new FormData(uploadForm);
+            const fileInput = document.getElementById('registerFile');
+
+            if (!fileInput.files[0]) {
+                showUploadAlert('Please select a file to upload.', 'danger');
+                return;
+            }
+
+            uploadAlert.classList.add('hidden');
+
+            fetch('/api/upload-register', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showUploadAlert(`${data.message} (${data.count} voters)`, 'success');
+                    // Reset the file input after successful upload
+                    uploadForm.reset();
+                    // Reload statistics after successful upload
+                    loadStats();
+                } else {
+                    showUploadAlert(data.message, 'danger');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showUploadAlert('An error occurred during upload. Please try again.', 'danger');
+            });
+        });
+
+        passwordForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+
+            const currentPassword = document.getElementById('currentPassword').value;
+            const newPassword = document.getElementById('newPassword').value;
+            const confirmPassword = document.getElementById('confirmPassword').value;
+
+            if (newPassword !== confirmPassword) {
+                showPasswordAlert('New passwords do not match.', 'danger');
+                return;
+            }
+
+            passwordAlert.classList.add('hidden');
+
+            fetch('/api/change-password', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ currentPassword, newPassword })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showPasswordAlert(data.message, 'success');
+                    passwordForm.reset();
+                } else {
+                    showPasswordAlert(data.message, 'danger');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showPasswordAlert('An error occurred while changing the password. Please try again.', 'danger');
+            });
+        });
+
+        refreshStats.addEventListener('click', loadStats);
+
+        function showUploadAlert(message, type) {
+            uploadAlert.textContent = message;
+            uploadAlert.className = `alert alert-${type} mt-3`;
+        }
+
+        function showPasswordAlert(message, type) {
+            passwordAlert.textContent = message;
+            passwordAlert.className = `alert alert-${type} mt-3`;
+        }
+
+        function loadStats() {
+            statsLoading.classList.remove('hidden');
+            statsContent.classList.add('hidden');
+            statsError.classList.add('hidden');
+
+            fetch('/api/stats')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success === false) {
+                    throw new Error(data.message);
+                }
+
+                document.getElementById('totalVoters').textContent = data.totalVoters;
+                document.getElementById('totalVotes').textContent = data.totalVotes;
+                document.getElementById('votingPercentage').textContent = `${data.votingPercentage}%`;
+
+                // Create participation chart
+                createParticipationChart(data.totalVoters, data.totalVotes);
+
+                // Display vote counts
+                displayResults(data.voteCounts);
+
+                statsLoading.classList.add('hidden');
+                statsContent.classList.remove('hidden');
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                statsLoading.classList.add('hidden');
+                statsError.classList.remove('hidden');
+            });
+        }
+
+        function createParticipationChart(totalVoters, totalVotes) {
+            const ctx = document.getElementById('participationChart').getContext('2d');
+
+            // Destroy existing chart if it exists
+            if (participationChart) {
+                participationChart.destroy();
+            }
+
+            const notVoted = Math.max(0, totalVoters - totalVotes);
+
+            participationChart = new Chart(ctx, {
+                type: 'pie',
+                data: {
+                    labels: ['Votes Cast', 'Not Voted'],
+                    datasets: [{
+                        data: [totalVotes, notVoted],
+                        backgroundColor: [
+                            'rgba(54, 162, 235, 0.7)',
+                            'rgba(211, 211, 211, 0.7)'
+                        ],
+                        borderColor: [
+                            'rgba(54, 162, 235, 1)',
+                            'rgba(211, 211, 211, 1)'
+                        ],
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                boxWidth: 12,
+                                padding: 10
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const label = context.label || '';
+                                    const value = context.raw || 0;
+                                    const total = context.dataset.data.reduce((acc, val) => acc + val, 0);
+                                    const percentage = Math.round((value / total) * 100);
+                                    return `${label}: ${value} (${percentage}%)`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function displayResults(voteCounts) {
+            resultsContainer.innerHTML = '';
+
+            if (!voteCounts || Object.keys(voteCounts).length === 0) {
+                const noDataDiv = document.createElement('div');
+                noDataDiv.className = 'alert alert-info';
+                noDataDiv.textContent = 'No voting data available yet.';
+                resultsContainer.appendChild(noDataDiv);
+                return;
+            }
+
+            for (const [question, answers] of Object.entries(voteCounts)) {
+                const card = document.createElement('div');
+                card.className = 'card mb-3';
+
+                const cardBody = document.createElement('div');
+                cardBody.className = 'card-body';
+
+                const cardTitle = document.createElement('h5');
+                cardTitle.className = 'card-title';
+                cardTitle.textContent = formatQuestionTitle(question);
+
+                cardBody.appendChild(cardTitle);
+
+                // Add chart container
+                const chartContainer = document.createElement('div');
+                chartContainer.className = 'mb-3';
+                chartContainer.style = 'width: 60%; margin: 0 auto;';
+                const chartCanvas = document.createElement('canvas');
+                chartCanvas.id = `chart-${question}`;
+                chartCanvas.height = 120;
+                chartContainer.appendChild(chartCanvas);
+                cardBody.appendChild(chartContainer);
+
+                const table = document.createElement('table');
+                table.className = 'table table-sm';
+
+                const tableHead = document.createElement('thead');
+                const headerRow = document.createElement('tr');
+                const optionHeader = document.createElement('th');
+                optionHeader.textContent = 'Option';
+                const votesHeader = document.createElement('th');
+                votesHeader.textContent = 'Votes';
+                const percentHeader = document.createElement('th');
+                percentHeader.textContent = 'Percentage';
+
+                headerRow.appendChild(optionHeader);
+                headerRow.appendChild(votesHeader);
+                headerRow.appendChild(percentHeader);
+                tableHead.appendChild(headerRow);
+                table.appendChild(tableHead);
+
+                const tableBody = document.createElement('tbody');
+
+                // Calculate total votes for this question
+                const totalVotesForQuestion = Object.values(answers).reduce((sum, count) => sum + count, 0);
+
+                // Prepare data for chart
+                const chartLabels = [];
+                const chartData = [];
+                const chartColors = generateChartColors(Object.keys(answers).length);
+
+                for (const [option, count] of Object.entries(answers)) {
+                    const row = document.createElement('tr');
+
+                    const optionCell = document.createElement('td');
+                    optionCell.textContent = option;
+
+                    const countCell = document.createElement('td');
+                    countCell.textContent = count;
+
+                    const percentCell = document.createElement('td');
+                    const percentage = totalVotesForQuestion > 0
+                        ? ((count / totalVotesForQuestion) * 100).toFixed(1)
+                        : '0.0';
+                    percentCell.textContent = `${percentage}%`;
+
+                    row.appendChild(optionCell);
+                    row.appendChild(countCell);
+                    row.appendChild(percentCell);
+
+                    tableBody.appendChild(row);
+
+                    // Add to chart data
+                    chartLabels.push(option);
+                    chartData.push(count);
+                }
+
+                table.appendChild(tableBody);
+                cardBody.appendChild(table);
+                card.appendChild(cardBody);
+                resultsContainer.appendChild(card);
+
+                // Create chart
+                createResultChart(
+                    chartCanvas.id,
+                    chartLabels,
+                    chartData,
+                    chartColors,
+                    formatQuestionTitle(question)
+                );
+            }
+        }
+
+        function createResultChart(canvasId, labels, data, colors, title) {
+            const ctx = document.getElementById(canvasId).getContext('2d');
+
+            // Destroy existing chart if it exists
+            if (resultCharts[canvasId]) {
+                resultCharts[canvasId].destroy();
+            }
+
+            resultCharts[canvasId] = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Votes',
+                        data: data,
+                        backgroundColor: colors,
+                        borderColor: colors.map(color => color.replace('0.7', '1')),
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    layout: {
+                        padding: {
+                            top: 0,
+                            right: 0,
+                            bottom: 0,
+                            left: 0
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        title: {
+                            display: true,
+                            text: title,
+                            font: {
+                                size: 14
+                            },
+                            padding: {
+                                top: 5,
+                                bottom: 5
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const value = context.raw || 0;
+                                    const total = context.dataset.data.reduce((acc, val) => acc + val, 0);
+                                    const percentage = Math.round((value / total) * 100);
+                                    return `Votes: ${value} (${percentage}%)`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                precision: 0
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function generateChartColors(count) {
+            const baseColors = [
+                'rgba(54, 162, 235, 0.7)',  // blue
+                'rgba(255, 99, 132, 0.7)',   // red
+                'rgba(75, 192, 192, 0.7)',   // green
+                'rgba(255, 206, 86, 0.7)',   // yellow
+                'rgba(153, 102, 255, 0.7)',  // purple
+                'rgba(255, 159, 64, 0.7)',   // orange
+                'rgba(199, 199, 199, 0.7)'   // gray
+            ];
+
+            // If we have more options than colors, cycle through the colors
+            const colors = [];
+            for (let i = 0; i < count; i++) {
+                colors.push(baseColors[i % baseColors.length]);
+            }
+
+            return colors;
+        }
+
+        function formatQuestionTitle(key) {
+            // Convert camelCase to Title Case with spaces
+            return key
+                .replace(/([A-Z])/g, ' $1')
+                .replace(/^./, str => str.toUpperCase());
+        }
+    });
+</script>
+
+<%- include('partials/footer') %>
