@@ -342,7 +342,19 @@
                 return;
             }
 
+            // List of active positions - only show these
+            const activePositions = [
+                'deputyPeoplesWarden',
+                'chairmanFinance'
+            ];
+
             for (const [question, answers] of Object.entries(voteCounts)) {
+                // Skip positions that aren't in the activePositions list
+                if (!activePositions.includes(question)) {
+                    console.log(`Skipping stats for removed position: ${question}`);
+                    continue;
+                }
+
                 const card = document.createElement('div');
                 card.className = 'card mb-3';
 

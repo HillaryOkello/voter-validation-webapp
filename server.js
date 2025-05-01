@@ -558,10 +558,9 @@ app.get('/vote', (req, res) => {
   res.render('vote');
 });
 
-// Comment out the forgot-membership route for security reasons
-// app.get('/forgot-membership', (req, res) => {
-//   res.render('forgot-membership');
-// });
+app.get('/forgot-membership', (req, res) => {
+  res.render('forgot-membership');
+});
 
 // API endpoint to validate membership number
 app.post('/api/validate-membership', async (req, res) => {
@@ -626,36 +625,36 @@ app.post('/api/validate-membership', async (req, res) => {
   }
 });
 
-// API endpoint to find membership by name - commented out for security reasons
-// app.post('/api/find-membership', async (req, res) => {
-//   const { name } = req.body;
-//   
-//   if (!name) {
-//     return res.status(400).json({ success: false, message: 'Name is required' });
-//   }
-//   
-//   try {
-//     const matches = await findMembershipByName(name);
-//     
-//     if (matches.length === 0) {
-//       return res.json({ 
-//         success: false, 
-//         message: 'No membership found with that name. Please check spelling or contact an administrator.' 
-//       });
-//     }
-//     
-//     return res.json({ 
-//       success: true, 
-//       matches 
-//     });
-//   } catch (error) {
-//     console.error('Find membership error:', error);
-//     return res.status(500).json({ 
-//       success: false, 
-//       message: 'An error occurred while searching. Please try again.' 
-//     });
-//   }
-// });
+// API endpoint to find membership by name
+app.post('/api/find-membership', async (req, res) => {
+  const { name } = req.body;
+  
+  if (!name) {
+    return res.status(400).json({ success: false, message: 'Name is required' });
+  }
+  
+  try {
+    const matches = await findMembershipByName(name);
+    
+    if (matches.length === 0) {
+      return res.json({ 
+        success: false, 
+        message: 'No membership found with that name. Please check spelling or contact an administrator.' 
+      });
+    }
+    
+    return res.json({ 
+      success: true, 
+      matches 
+    });
+  } catch (error) {
+    console.error('Find membership error:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'An error occurred while searching. Please try again.' 
+    });
+  }
+});
 
 // API endpoint to submit a vote
 app.post('/api/submit-vote', async (req, res) => {
