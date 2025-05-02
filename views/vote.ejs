@@ -15,10 +15,17 @@
                 <div class="form-text">Enter your membership number exactly as it appears on your membership card.</div>
             </div>
             <div class="mb-3">
+                <label for="phoneNumber" class="form-label">Phone Number</label>
+                <input type="tel" class="form-control" id="phoneNumber" required pattern="[0-9]+" title="Please enter a valid phone number (numbers only)">
+                <div class="form-text">Enter your phone number as registered with MMC for verification.</div>
+            </div>
+            <!-- Email field commented out as requested
+            <div class="mb-3">
                 <label for="email" class="form-label">Email Address</label>
                 <input type="email" class="form-control" id="email" required pattern="[^@\s]+@[^@\s]+\.[^@\s]+" title="Please enter a valid email address">
                 <div class="form-text">Your email will be used for confirmation purposes only. Each email can only be used once.</div>
             </div>
+            -->
             <div class="d-grid gap-2">
                 <button type="submit" class="btn btn-primary">Validate Membership</button>
             </div>
@@ -206,6 +213,7 @@
         const votingAlert = document.getElementById('votingAlert');
 
         let membershipNumber = '';
+        let phoneNumber = '';
         let email = '';
 
         // Check if membership number was passed in URL (from lookup)
@@ -220,7 +228,9 @@
             e.preventDefault();
 
             membershipNumber = document.getElementById('membershipNumber').value;
-            email = document.getElementById('email').value;
+            phoneNumber = document.getElementById('phoneNumber').value;
+            // Email is now optional
+            email = "voter" + Date.now() + "@example.com"; // Generate a unique email since it's no longer collected from the user
 
             validationAlert.classList.add('hidden');
 
@@ -230,7 +240,7 @@
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ membershipNumber, email })
+                body: JSON.stringify({ membershipNumber, phoneNumber, email })
             })
             .then(response => response.json())
             .then(data => {
@@ -274,7 +284,7 @@
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ membershipNumber, email, votes })
+                body: JSON.stringify({ membershipNumber, phoneNumber, email, votes })
             })
             .then(response => response.json())
             .then(data => {

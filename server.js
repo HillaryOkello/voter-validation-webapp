@@ -404,6 +404,98 @@ async function isValidMembershipNumber(membershipNumber) {
   }
 }
 
+// Function to validate membership number with phone number
+async function validateMembershipWithPhone(membershipNumber, phoneNumber) {
+  try {
+    const register = await getVoterRegister();
+    
+    // Debug log more detailed information about the register
+    console.log(`Validating membershipNumber: ${membershipNumber}, phoneNumber: ${phoneNumber}`);
+    console.log('First few voter register entries:');
+    register.slice(0, 3).forEach((voter, index) => {
+      console.log(`Register entry ${index}:`, JSON.stringify(voter));
+    });
+    
+    // Format the phone number input to strip any non-numeric characters
+    const formattedInputPhone = phoneNumber.replace(/\D/g, '');
+    
+    // Track if we found the membership number but phone didn't match
+    let foundMembershipButPhoneDidntMatch = false;
+    let matchedMembership = null;
+    
+    // Check for membership number and phone number in different possible column names
+    const matchResult = register.some(voter => {
+      // Try different possible column names for membership number
+      const membershipValue = 
+        voter['MMC NO.'] ||
+        voter['M/SHIP NO.'] ||
+        voter['Membership Number'] || 
+        voter['MEMBERSHIP NUMBER'] || 
+        voter['membershipNumber'] ||
+        voter['Membership number'] ||
+        voter['membership number'] ||
+        voter['MembershipNumber'];
+      
+      // Try different possible column names for phone number
+      const phoneValue = 
+        voter['TEL NO.'] || 
+        voter['TELEPHONE'] ||
+        voter['Phone Number'] || 
+        voter['phone number'] || 
+        voter['Phone'] || 
+        voter['phone'] ||
+        voter['MOBILE NO.'] ||
+        voter['Mobile'] ||
+        voter['mobile'];
+      
+      // Format the phone number from register to strip any non-numeric characters
+      const formattedRegisterPhone = phoneValue ? String(phoneValue).replace(/\D/g, '') : '';
+      
+      // Log detailed information for each potential match
+      if (membershipValue) {
+        const membershipValueStr = String(membershipValue).trim();
+        const inputValueStrMembership = String(membershipNumber).trim();
+        
+        if (membershipValueStr === inputValueStrMembership) {
+          matchedMembership = voter;
+          console.log('FOUND MATCHING MEMBERSHIP NUMBER:');
+          console.log('Register entry:', JSON.stringify(voter));
+          console.log(`Register phone: ${phoneValue} (formatted: ${formattedRegisterPhone})`);
+          console.log(`Input phone: ${phoneNumber} (formatted: ${formattedInputPhone})`);
+          
+          if (formattedRegisterPhone !== formattedInputPhone) {
+            foundMembershipButPhoneDidntMatch = true;
+            console.log('WARNING: PHONE NUMBER DOES NOT MATCH!');
+            return false;
+          }
+          return true;
+        }
+      }
+      
+      return false;
+    });
+    
+    if (foundMembershipButPhoneDidntMatch) {
+      return { 
+        valid: false, 
+        message: 'The phone number provided does not match our records for this membership number.' 
+      };
+    }
+    
+    if (!matchedMembership) {
+      return { 
+        valid: false, 
+        message: 'Membership number not found in our records.' 
+      };
+    }
+    
+    return { valid: matchResult, message: '' };
+  } catch (error) {
+    console.error('Error validating membership with phone:', error);
+    return { valid: false, message: 'An error occurred while validating membership with phone.' };
+  }
+}
+
 // Function to check if a membership number has already voted
 async function hasAlreadyVoted(membershipNumber) {
   try {
@@ -564,26 +656,32 @@ app.get('/forgot-membership', (req, res) => {
 
 // API endpoint to validate membership number
 app.post('/api/validate-membership', async (req, res) => {
-  const { membershipNumber, email } = req.body;
+  const { membershipNumber, phoneNumber, email } = req.body;
   
   if (!membershipNumber) {
     return res.status(400).json({ valid: false, message: 'Membership number is required' });
   }
   
+  if (!phoneNumber) {
+    return res.status(400).json({ valid: false, message: 'Phone number is required' });
+  }
+  
+  // Email is still required for internal tracking but is generated on the client side if not provided
   if (!email) {
-    return res.status(400).json({ valid: false, message: 'Email address is required' });
+    return res.status(400).json({ valid: false, message: 'Email is required (for internal use)' });
   }
   
   // Validate email format
   if (!isValidEmail(email)) {
     return res.status(400).json({ 
       valid: false, 
-      message: 'Invalid email format. Please enter a valid email address.' 
+      message: 'Invalid email format. Please contact the administrator.' 
     });
   }
   
   try {
     // Check if email has already been used - THIS CHECK MUST BE FIRST
+    // We're still checking for unique emails to prevent duplicate votes
     const emailUsed = await hasEmailAlreadyVoted(email);
     console.log(`Email used check result: ${emailUsed}`);
     
@@ -591,17 +689,17 @@ app.post('/api/validate-membership', async (req, res) => {
       console.log(`Rejecting validation because email ${email} has already been used`);
       return res.json({ 
         valid: false, 
-        message: 'This email address has already been used to vote. Each voter must use a unique email.' 
+        message: 'This validation token has already been used. Please contact an administrator if you need assistance.' 
       });
     }
     
-    // Only perform these checks if email hasn't been used
-    const isValid = await isValidMembershipNumber(membershipNumber);
+    // Validate membership number with phone number
+    const validationResult = await validateMembershipWithPhone(membershipNumber, phoneNumber);
     
-    if (!isValid) {
+    if (!validationResult.valid) {
       return res.json({ 
         valid: false, 
-        message: 'Invalid membership number. Please check and try again.' 
+        message: validationResult.message || 'Invalid membership number or phone number. Please check and try again.' 
       });
     }
     
@@ -614,7 +712,7 @@ app.post('/api/validate-membership', async (req, res) => {
       });
     }
     
-    console.log(`Validation successful for membership: ${membershipNumber}, email: ${email}`);
+    console.log(`Validation successful for membership: ${membershipNumber}, phone: ${phoneNumber}, email: ${email}`);
     return res.json({ valid: true });
   } catch (error) {
     console.error('Validation error:', error);
@@ -658,27 +756,33 @@ app.post('/api/find-membership', async (req, res) => {
 
 // API endpoint to submit a vote
 app.post('/api/submit-vote', async (req, res) => {
-  const { membershipNumber, email, votes } = req.body;
+  const { membershipNumber, phoneNumber, email, votes } = req.body;
   
-  if (!membershipNumber || !email || !votes) {
+  if (!membershipNumber || !phoneNumber || !votes) {
     return res.status(400).json({ success: false, message: 'Missing required fields' });
+  }
+  
+  // Email is now auto-generated on the client side but still validated here for tracking
+  if (!email) {
+    return res.status(400).json({ success: false, message: 'Email is required for tracking (internal use)' });
   }
   
   // Validate email format
   if (!isValidEmail(email)) {
     return res.status(400).json({ 
       success: false, 
-      message: 'Invalid email format. Please enter a valid email address.' 
+      message: 'Invalid email format. Please contact the administrator.' 
     });
   }
   
   try {
-    const isValid = await isValidMembershipNumber(membershipNumber);
+    // Validate membership number with phone number
+    const validationResult = await validateMembershipWithPhone(membershipNumber, phoneNumber);
     
-    if (!isValid) {
+    if (!validationResult.valid) {
       return res.json({ 
         success: false, 
-        message: 'Invalid membership number. Please check and try again.' 
+        message: 'Invalid membership number or phone number. The phone number must match our records.' 
       });
     }
     
@@ -697,11 +801,11 @@ app.post('/api/submit-vote', async (req, res) => {
     if (emailUsed) {
       return res.json({ 
         success: false, 
-        message: 'This email address has already been used to vote. Each voter must use a unique email.' 
+        message: 'This validation token has already been used. Please contact an administrator if you need assistance.' 
       });
     }
     
-    const recorded = await recordVote({ membershipNumber, email, votes });
+    const recorded = await recordVote({ membershipNumber, phoneNumber, email, votes });
     
     if (!recorded) {
       return res.status(500).json({ 
