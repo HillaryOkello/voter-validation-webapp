@@ -19,13 +19,11 @@
                 <input type="tel" class="form-control" id="phoneNumber" required pattern="[0-9]+" title="Please enter a valid phone number (numbers only)">
                 <div class="form-text">Enter your phone number as registered with MMC for verification.</div>
             </div>
-            <!-- Email field commented out as requested
             <div class="mb-3">
                 <label for="email" class="form-label">Email Address</label>
                 <input type="email" class="form-control" id="email" required pattern="[^@\s]+@[^@\s]+\.[^@\s]+" title="Please enter a valid email address">
-                <div class="form-text">Your email will be used for confirmation purposes only. Each email can only be used once.</div>
+                <div class="form-text">Your email will be used to send you a confirmation of your vote.</div>
             </div>
-            -->
             <div class="d-grid gap-2">
                 <button type="submit" class="btn btn-primary">Validate Membership</button>
             </div>
@@ -45,7 +43,7 @@
                     <div class="col-md-4 mb-3">
                         <div class="card">
                             <div class="candidate-image-container">
-                                <img src="/images/candidates/sammy_matano.jpg" class="card-img-top candidate-image" alt="Sammy Andrew Matano" onerror="this.src='/images/placeholder.svg'">
+                                <img src="/images/candidates/sammy_matano.jpeg" class="card-img-top candidate-image" alt="Sammy Andrew Matano" onerror="this.src='/images/placeholder.svg'">
                             </div>
                             <div class="card-body">
                                 <div class="form-check">
@@ -229,8 +227,7 @@
 
             membershipNumber = document.getElementById('membershipNumber').value;
             phoneNumber = document.getElementById('phoneNumber').value;
-            // Email is now optional
-            email = "voter" + Date.now() + "@example.com"; // Generate a unique email since it's no longer collected from the user
+            email = document.getElementById('email').value;
 
             validationAlert.classList.add('hidden');
 

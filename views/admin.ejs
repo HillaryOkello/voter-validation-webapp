@@ -332,29 +332,17 @@
         }
 
         function displayResults(voteCounts) {
+            const resultsContainer = document.getElementById('resultsContainer');
             resultsContainer.innerHTML = '';
 
-            if (!voteCounts || Object.keys(voteCounts).length === 0) {
-                const noDataDiv = document.createElement('div');
-                noDataDiv.className = 'alert alert-info';
-                noDataDiv.textContent = 'No voting data available yet.';
-                resultsContainer.appendChild(noDataDiv);
-                return;
-            }
-
-            // List of active positions - only show these
+            // Active positions - must be kept in sync with server.js
             const activePositions = [
                 'deputyPeoplesWarden',
                 'chairmanFinance'
             ];
 
-            for (const [question, answers] of Object.entries(voteCounts)) {
-                // Skip positions that aren't in the activePositions list
-                if (!activePositions.includes(question)) {
-                    console.log(`Skipping stats for removed position: ${question}`);
-                    continue;
-                }
-
+            // Initialize card for each active position
+            activePositions.forEach(position => {
                 const card = document.createElement('div');
                 card.className = 'card mb-3';
 
@@ -363,7 +351,7 @@
 
                 const cardTitle = document.createElement('h5');
                 cardTitle.className = 'card-title';
-                cardTitle.textContent = formatQuestionTitle(question);
+                cardTitle.textContent = formatQuestionTitle(position);
 
                 cardBody.appendChild(cardTitle);
 
@@ -372,78 +360,176 @@
                 chartContainer.className = 'mb-3';
                 chartContainer.style = 'width: 60%; margin: 0 auto;';
                 const chartCanvas = document.createElement('canvas');
-                chartCanvas.id = `chart-${question}`;
+                chartCanvas.id = `chart-${position}`;
                 chartCanvas.height = 120;
                 chartContainer.appendChild(chartCanvas);
                 cardBody.appendChild(chartContainer);
 
+                // Create an empty table as placeholder
                 const table = document.createElement('table');
                 table.className = 'table table-sm';
-
-                const tableHead = document.createElement('thead');
+                
+                const thead = document.createElement('thead');
                 const headerRow = document.createElement('tr');
-                const optionHeader = document.createElement('th');
-                optionHeader.textContent = 'Option';
-                const votesHeader = document.createElement('th');
-                votesHeader.textContent = 'Votes';
-                const percentHeader = document.createElement('th');
-                percentHeader.textContent = 'Percentage';
-
-                headerRow.appendChild(optionHeader);
-                headerRow.appendChild(votesHeader);
-                headerRow.appendChild(percentHeader);
-                tableHead.appendChild(headerRow);
-                table.appendChild(tableHead);
-
-                const tableBody = document.createElement('tbody');
-
-                // Calculate total votes for this question
-                const totalVotesForQuestion = Object.values(answers).reduce((sum, count) => sum + count, 0);
-
-                // Prepare data for chart
-                const chartLabels = [];
-                const chartData = [];
-                const chartColors = generateChartColors(Object.keys(answers).length);
-
-                for (const [option, count] of Object.entries(answers)) {
-                    const row = document.createElement('tr');
-
-                    const optionCell = document.createElement('td');
-                    optionCell.textContent = option;
-
-                    const countCell = document.createElement('td');
-                    countCell.textContent = count;
-
-                    const percentCell = document.createElement('td');
-                    const percentage = totalVotesForQuestion > 0
-                        ? ((count / totalVotesForQuestion) * 100).toFixed(1)
-                        : '0.0';
-                    percentCell.textContent = `${percentage}%`;
-
-                    row.appendChild(optionCell);
-                    row.appendChild(countCell);
-                    row.appendChild(percentCell);
-
-                    tableBody.appendChild(row);
-
-                    // Add to chart data
-                    chartLabels.push(option);
-                    chartData.push(count);
-                }
-
-                table.appendChild(tableBody);
+                
+                ['Candidate', 'Votes', 'Percentage'].forEach(headerText => {
+                    const th = document.createElement('th');
+                    th.textContent = headerText;
+                    headerRow.appendChild(th);
+                });
+                
+                thead.appendChild(headerRow);
+                table.appendChild(thead);
+                
+                // Create table body
+                const tbody = document.createElement('tbody');
+                tbody.id = `tbody-${position}`;
+                table.appendChild(tbody);
+                
                 cardBody.appendChild(table);
                 card.appendChild(cardBody);
                 resultsContainer.appendChild(card);
+                
+                // Initialize with empty data if no votes yet
+                if (!voteCounts[position] || Object.keys(voteCounts[position]).length === 0) {
+                    // For positions with no votes yet, we'll show an empty chart
+                    // We need to get the candidates from the ballot
+                    getCandidatesForPosition(position).then(candidates => {
+                        if (candidates.length > 0) {
+                            // We have candidate names, create a chart with zero votes
+                            const labels = candidates;
+                            const data = Array(candidates.length).fill(0);
+                            const colors = generateChartColors(candidates.length);
+                            
+                            // Create the chart
+                            createResultChart(
+                                chartCanvas.id,
+                                labels,
+                                data,
+                                colors,
+                                formatQuestionTitle(position)
+                            );
+                            
+                            // Populate the table with zero votes
+                            const tbody = document.getElementById(`tbody-${position}`);
+                            candidates.forEach(candidate => {
+                                const row = document.createElement('tr');
+                                
+                                const nameCell = document.createElement('td');
+                                nameCell.textContent = candidate;
+                                row.appendChild(nameCell);
+                                
+                                const votesCell = document.createElement('td');
+                                votesCell.textContent = '0';
+                                row.appendChild(votesCell);
+                                
+                                const percentCell = document.createElement('td');
+                                percentCell.textContent = '0%';
+                                row.appendChild(percentCell);
+                                
+                                tbody.appendChild(row);
+                            });
+                        } else {
+                            // No candidates found, show "No votes yet" message
+                            const tbody = document.getElementById(`tbody-${position}`);
+                            const row = document.createElement('tr');
+                            const messageCell = document.createElement('td');
+                            messageCell.colSpan = 3;
+                            messageCell.className = 'text-center';
+                            messageCell.textContent = 'No candidates or votes yet for this position';
+                            row.appendChild(messageCell);
+                            tbody.appendChild(row);
+                        }
+                    });
+                }
+            });
 
-                // Create chart
+            // If there are no vote counts at all, we're done (charts are already created)
+            if (Object.keys(voteCounts).length === 0) {
+                return;
+            }
+
+            // Now populate data for positions that have votes
+            for (const [question, answers] of Object.entries(voteCounts)) {
+                // Skip positions that aren't in the activePositions list
+                if (!activePositions.includes(question)) {
+                    console.log(`Skipping stats for removed position: ${question}`);
+                    continue;
+                }
+
+                // Get the table body for this position
+                const tbody = document.getElementById(`tbody-${question}`);
+                if (!tbody) continue;
+                
+                // Clear any existing content (from the zero-votes placeholder)
+                tbody.innerHTML = '';
+
+                const total = Object.values(answers).reduce((sum, count) => sum + count, 0);
+                
+                // Sort answers by vote count (descending)
+                const sortedAnswers = Object.entries(answers).sort((a, b) => b[1] - a[1]);
+                
+                // Chart data
+                const chartLabels = [];
+                const chartData = [];
+                
+                // Populate table with real vote data
+                sortedAnswers.forEach(([candidate, votes]) => {
+                    chartLabels.push(candidate);
+                    chartData.push(votes);
+                    
+                    const percentage = Math.round((votes / total) * 100) || 0;
+                    
+                    const row = document.createElement('tr');
+                    
+                    const nameCell = document.createElement('td');
+                    nameCell.textContent = candidate;
+                    row.appendChild(nameCell);
+                    
+                    const votesCell = document.createElement('td');
+                    votesCell.textContent = votes;
+                    row.appendChild(votesCell);
+                    
+                    const percentCell = document.createElement('td');
+                    percentCell.textContent = `${percentage}%`;
+                    row.appendChild(percentCell);
+                    
+                    tbody.appendChild(row);
+                });
+                
+                // Create chart with the real data
+                const chartColors = generateChartColors(chartLabels.length);
+                
+                // Create or update the chart
                 createResultChart(
-                    chartCanvas.id,
+                    `chart-${question}`,
                     chartLabels,
                     chartData,
                     chartColors,
                     formatQuestionTitle(question)
                 );
+            }
+        }
+
+        // Function to get candidates for a position from the vote form
+        async function getCandidatesForPosition(position) {
+            try {
+                // Fetch vote.ejs to extract candidates
+                const response = await fetch('/vote');
+                const html = await response.text();
+                
+                // Create a temporary DOM element to parse the HTML
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+                
+                // Find all radio buttons for this position
+                const radios = Array.from(doc.querySelectorAll(`input[type="radio"][name="${position}"]`));
+                
+                // Extract candidate names from the values
+                return radios.map(radio => radio.value);
+            } catch (error) {
+                console.error('Error fetching candidates:', error);
+                return [];
             }
         }
 
