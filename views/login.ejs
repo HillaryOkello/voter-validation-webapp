@@ -1,8 +1,8 @@
-<%- include('partials/header', {title: 'Admin Login - Election Voting System'}) %>
+<%- include('partials/header', {title: 'Admin Login - MMC Voting System'}) %>
 
 <div class="header">
     <h1>Admin Login</h1>
-    <p class="lead">Please log in to access the admin dashboard</p>
+    <p class="lead">Please log in to access the MMC election admin dashboard</p>
 </div>
 
 <div class="row justify-content-center">
@@ -14,10 +14,12 @@
                 </div>
             <% } %>
             
-            <div class="mb-4">
-                <h4>Administrator Dashboard</h4>
-                <p>Election administrators can upload the voter register, monitor voting statistics, and manage the election.</p>
-                <p>The admin panel provides real-time insights into voting patterns and participation rates.</p>
+            <div class="mb-4 text-center">
+                <img src="/images/cropped-LOGO.png" alt="MMC Logo" class="img-fluid mb-3" style="max-height: 100px;">
+                <h4>Mombasa Memorial Cathedral</h4>
+                <p class="text-muted">Election Administrator Access</p>
+                <hr>
+                <p>This secure area is for authorized election administrators only.</p>
             </div>
             
             <form action="/login" method="POST">
@@ -29,7 +31,6 @@
                 <div class="mb-3">
                     <label for="password" class="form-label">Password</label>
                     <input type="password" class="form-control" id="password" name="password" required>
-                    <div class="form-text">Default credentials: username: admin, password: admin123</div>
                 </div>
                 
                 <div class="d-grid gap-2">
@@ -38,7 +39,7 @@
             </form>
             
             <div class="mt-3 text-center">
-                <a href="/" class="btn btn-link">Back to Home</a>
+                <a href="/" class="btn btn-link">Back to Voting Page</a>
             </div>
         </div>
     </div>

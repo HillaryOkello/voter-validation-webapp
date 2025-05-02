@@ -141,31 +141,38 @@ const initializeAdmin = () => {
     if (fs.existsSync(adminFile)) {
       const admin = fs.readJsonSync(adminFile);
       // Check if file has valid data
-      if (admin && admin.username && admin.passwordHash) {
+      if (admin && admin.admins && Array.isArray(admin.admins) && admin.admins.length > 0) {
         console.log("Admin file exists and contains valid data.");
         return;
       } else {
-        console.log("Admin file exists but contains invalid data. Recreating...");
+        console.log("Admin file exists but has invalid format. Recreating...");
       }
     } else {
-      console.log("Admin file doesn't exist. Creating default admin...");
+      // Create data directory if it doesn't exist
+      if (!fs.existsSync(path.dirname(adminFile))) {
+        fs.mkdirpSync(path.dirname(adminFile));
+        console.log("Created data directory structure");
+      }
     }
 
-    // Create data directory if it doesn't exist
-    if (!fs.existsSync(path.dirname(adminFile))) {
-      fs.mkdirpSync(path.dirname(adminFile));
-      console.log("Created data directory structure");
-    }
+    // Create two admin accounts with different passwords
+    const admins = [
+      {
+        username: 'admin1',
+        passwordHash: bcrypt.hashSync('mmc2025admin1', 10),
+        role: 'administrator',
+        name: 'MMC Admin 1'
+      },
+      {
+        username: 'admin2',
+        passwordHash: bcrypt.hashSync('mmc2025admin2', 10),
+        role: 'administrator',
+        name: 'MMC Admin 2'
+      }
+    ];
 
-    // Create default admin credentials (username: admin, password: admin123)
-    const defaultAdmin = {
-      username: 'admin',
-      // Hash the password
-      passwordHash: bcrypt.hashSync('admin123', 10)
-    };
-
-    fs.writeJsonSync(adminFile, defaultAdmin);
-    console.log("Default admin created successfully");
+    fs.writeJsonSync(adminFile, { admins });
+    console.log("Admin accounts created successfully");
   } catch (error) {
     console.error("Error initializing admin:", error);
   }
@@ -680,18 +687,24 @@ app.post('/login', async (req, res) => {
     }
 
     // Read admin credentials
-    const admin = fs.readJsonSync(adminFile);
+    const adminData = fs.readJsonSync(adminFile);
     console.log(`Login attempt for username: ${username} from IP: ${clientIP}`);
 
-    if (username === admin.username && bcrypt.compareSync(password, admin.passwordHash)) {
+    // Find matching admin
+    const matchingAdmin = adminData.admins.find(admin => admin.username === username);
+
+    if (matchingAdmin && bcrypt.compareSync(password, matchingAdmin.passwordHash)) {
       console.log("Login successful");
 
       // Set both session and global auth for Render
       req.session.isAuthenticated = true;
+      req.session.adminUsername = matchingAdmin.username;
+      req.session.adminName = matchingAdmin.name || matchingAdmin.username;
 
       // For Render, also set the global auth store
       if (isRender) {
         authStore.adminAuthenticated = true;
+        authStore.adminUsername = matchingAdmin.username;
         authStore.lastLoginTime = new Date().toISOString();
         authStore.loginIP = clientIP;
         console.log(`Global auth store updated: ${JSON.stringify(authStore)}`);
@@ -1109,31 +1122,45 @@ function formatColumnName(camelCase) {
 }
 
 // API endpoint to change admin password
-app.post('/api/change-password', renderAuth, async (req, res) => {
+app.post('/api/change-password', requireAuth, async (req, res) => {
   const { currentPassword, newPassword } = req.body;
 
   if (!currentPassword || !newPassword) {
-    return res.status(400).json({ success: false, message: 'Both current and new passwords are required' });
+    return res.status(400).json({ success: false, message: 'All fields are required' });
   }
 
   try {
-    const admin = fs.readJsonSync(adminFile);
+    const adminData = fs.readJsonSync(adminFile);
 
+    // Get username from session
+    const username = req.session.adminUsername;
+    
+    if (!username) {
+      return res.json({ success: false, message: 'Session error. Please log in again.' });
+    }
+
+    // Find the admin account
+    const adminIndex = adminData.admins.findIndex(admin => admin.username === username);
+    
+    if (adminIndex === -1) {
+      return res.json({ success: false, message: 'Admin account not found' });
+    }
+    
+    const admin = adminData.admins[adminIndex];
+
+    // Verify current password
     if (!bcrypt.compareSync(currentPassword, admin.passwordHash)) {
       return res.json({ success: false, message: 'Current password is incorrect' });
     }
 
     // Update password
-    admin.passwordHash = bcrypt.hashSync(newPassword, 10);
-    fs.writeJsonSync(adminFile, admin);
+    adminData.admins[adminIndex].passwordHash = bcrypt.hashSync(newPassword, 10);
+    fs.writeJsonSync(adminFile, adminData);
 
     return res.json({ success: true, message: 'Password changed successfully' });
   } catch (error) {
-    console.error('Password change error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'An error occurred while changing the password.'
-    });
+    console.error('Error changing password:', error);
+    return res.status(500).json({ success: false, message: 'An error occurred while changing the password' });
   }
 });
 
