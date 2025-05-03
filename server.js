@@ -553,7 +553,7 @@ async function recordVote(voteData) {
     const votes = fs.readJsonSync(votesFile);
     votes.push({
       ...voteData,
-      timestamp: new Date().toISOString()
+      timestamp: getNairobiTimestamp()
     });
     fs.writeJsonSync(votesFile, votes);
     return true;
@@ -561,6 +561,36 @@ async function recordVote(voteData) {
     console.error('Error recording vote:', error);
     return false;
   }
+}
+
+// Function to get current timestamp in Africa/Nairobi timezone (UTC+3)
+function getNairobiTimestamp() {
+  const now = new Date();
+  
+  // Create a formatter that explicitly uses the Africa/Nairobi timezone
+  const options = {
+    timeZone: 'Africa/Nairobi',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  };
+  
+  // Format the date in Nairobi time
+  const nairobiTimeString = new Intl.DateTimeFormat('en-GB', options).format(now);
+  
+  // Parse the formatted string back to a Date object
+  const [datePart, timePart] = nairobiTimeString.split(', ');
+  const [day, month, year] = datePart.split('/');
+  const [hour, minute, second] = timePart.split(':');
+  
+  // Create an ISO string in Nairobi time (adding the +03:00 timezone identifier)
+  const isoString = `${year}-${month}-${day}T${hour}:${minute}:${second}+03:00`;
+  
+  return isoString;
 }
 
 // Email configuration
@@ -587,7 +617,7 @@ try {
 }
 
 // Function to send vote confirmation email
-async function sendVoteConfirmationEmail(email, membershipNumber) {
+async function sendVoteConfirmationEmail(email, membershipNumber, fullName) {
   // Skip sending emails if transporter isn't initialized
   if (!transporter) {
     console.warn('Email transporter not initialized, skipping email send');
@@ -595,16 +625,19 @@ async function sendVoteConfirmationEmail(email, membershipNumber) {
   }
   
   try {
-    // Format date for the email
+    // Format date for the email using Nairobi timezone
+    const now = new Date();
     const dateOptions = { 
+      timeZone: 'Africa/Nairobi',
       weekday: 'long', 
       year: 'numeric', 
       month: 'long', 
       day: 'numeric',
       hour: '2-digit',
-      minute: '2-digit'
+      minute: '2-digit',
+      hour12: true
     };
-    const formattedDate = new Date().toLocaleDateString('en-GB', dateOptions);
+    const formattedDate = new Intl.DateTimeFormat('en-GB', dateOptions).format(now);
     
     // Get the app's public URL
     const appUrl = process.env.APP_URL || 'http://localhost:3000';
@@ -618,11 +651,11 @@ async function sendVoteConfirmationEmail(email, membershipNumber) {
           <h3 style="color: #555; margin-top: 5px;">Voting System</h3>
         </div>
         <h2 style="color: #333; text-align: center;">Election Vote Confirmation</h2>
-        <p>Dear MMC Member,</p>
+        <p>Dear ${fullName},</p>
         <p>Thank you for participating in the MMC 2025 election. This email confirms that your vote has been successfully recorded.</p>
         <div style="background-color: #f5f5f5; padding: 15px; margin: 20px 0; border-radius: 5px;">
           <p><strong>Membership Number:</strong> ${membershipNumber}</p>
-          <p><strong>Vote Date/Time:</strong> ${formattedDate}</p>
+          <p><strong>Vote Date/Time:</strong> ${formattedDate} (Nairobi Time)</p>
         </div>
         <p>Your participation in this election is important to MMC. If you did not vote or have any concerns, please contact the election committee immediately.</p>
         <p>Thank you,<br>MMC Election Committee</p>
@@ -756,69 +789,69 @@ app.get('/forgot-membership', (req, res) => {
 
 // API endpoint to validate membership number
 app.post('/api/validate-membership', async (req, res) => {
-  const { membershipNumber, phoneNumber, email } = req.body;
-
+  const { membershipNumber, phoneNumber, fullName, email } = req.body;
+  
   if (!membershipNumber) {
     return res.status(400).json({ valid: false, message: 'Membership number is required' });
   }
-
+  
   if (!phoneNumber) {
     return res.status(400).json({ valid: false, message: 'Phone number is required' });
   }
-
-  // Email is still required for internal tracking but is generated on the client side if not provided
-  if (!email) {
-    return res.status(400).json({ valid: false, message: 'Email is required for tracking (internal use)' });
+  
+  if (!fullName) {
+    return res.status(400).json({ valid: false, message: 'Full name is required' });
   }
-
-  // Validate email format
-  if (!isValidEmail(email)) {
-    return res.status(400).json({
-      valid: false,
-      message: 'Invalid email format. Please contact the administrator.'
+  
+  // Email is now optional, but if provided, validate its format
+  if (email && !isValidEmail(email)) {
+    return res.status(400).json({ 
+      valid: false, 
+      message: 'Invalid email format. Please enter a valid email address or leave it blank.' 
     });
   }
-
+  
   try {
-    // Check if email has already been used - THIS CHECK MUST BE FIRST
-    // We're still checking for unique emails to prevent duplicate votes
-    const emailUsed = await hasEmailAlreadyVoted(email);
-    console.log(`Email used check result: ${emailUsed}`);
-
-    if (emailUsed) {
-      console.log(`Rejecting validation because email ${email} has already been used`);
-      return res.json({
-        valid: false,
-        message: 'This validation token has already been used. Please contact an administrator if you need assistance.'
-      });
+    // Check if email has already been used (only if email is provided)
+    if (email) {
+      const emailUsed = await hasEmailAlreadyVoted(email);
+      console.log(`Email used check result: ${emailUsed}`);
+      
+      if (emailUsed) {
+        console.log(`Rejecting validation because email ${email} has already been used`);
+        return res.json({ 
+          valid: false, 
+          message: 'This email address has already been used to vote. Please use a different email or leave it blank.' 
+        });
+      }
     }
-
+    
     // Validate membership number with phone number
     const validationResult = await validateMembershipWithPhone(membershipNumber, phoneNumber);
-
+    
     if (!validationResult.valid) {
-      return res.json({
-        valid: false,
-        message: validationResult.message || 'Invalid membership number or phone number. Please check and try again.'
+      return res.json({ 
+        valid: false, 
+        message: validationResult.message || 'Invalid membership number or phone number. Please check and try again.' 
       });
     }
-
+    
     const hasVoted = await hasAlreadyVoted(membershipNumber);
-
+    
     if (hasVoted) {
-      return res.json({
-        valid: false,
-        message: 'This membership number has already voted.'
+      return res.json({ 
+        valid: false, 
+        message: 'This membership number has already voted.' 
       });
     }
-
-    console.log(`Validation successful for membership: ${membershipNumber}, phone: ${phoneNumber}, email: ${email}`);
+    
+    console.log(`Validation successful for membership: ${membershipNumber}, phone: ${phoneNumber}, name: ${fullName}, email: ${email || 'not provided'}`);
     return res.json({ valid: true });
   } catch (error) {
     console.error('Validation error:', error);
-    return res.status(500).json({
-      valid: false,
-      message: 'An error occurred during validation. Please try again.'
+    return res.status(500).json({ 
+      valid: false, 
+      message: 'An error occurred during validation. Please try again.' 
     });
   }
 });
@@ -856,80 +889,79 @@ app.post('/api/find-membership', async (req, res) => {
 
 // API endpoint to submit a vote
 app.post('/api/submit-vote', async (req, res) => {
-  const { membershipNumber, phoneNumber, email, votes } = req.body;
-
-  if (!membershipNumber || !phoneNumber || !votes) {
+  const { membershipNumber, phoneNumber, fullName, email, votes } = req.body;
+  
+  if (!membershipNumber || !phoneNumber || !fullName || !votes) {
     return res.status(400).json({ success: false, message: 'Missing required fields' });
   }
-
-  // Email is now auto-generated on the client side but still validated here for tracking
-  if (!email) {
-    return res.status(400).json({ success: false, message: 'Email is required for tracking (internal use)' });
-  }
-
-  // Validate email format
-  if (!isValidEmail(email)) {
-    return res.status(400).json({
-      success: false,
-      message: 'Invalid email format. Please contact the administrator.'
+  
+  // Email is optional, but if provided, validate its format
+  if (email && !isValidEmail(email)) {
+    return res.status(400).json({ 
+      success: false, 
+      message: 'Invalid email format. Please enter a valid email address or leave it blank.' 
     });
   }
-
+  
   try {
     // Validate membership number with phone number
     const validationResult = await validateMembershipWithPhone(membershipNumber, phoneNumber);
-
+    
     if (!validationResult.valid) {
-      return res.json({
-        success: false,
-        message: 'Invalid membership number or phone number. The phone number must match our records.'
+      return res.json({ 
+        success: false, 
+        message: 'Invalid membership number or phone number. The phone number must match our records.' 
       });
     }
-
+    
     const hasVoted = await hasAlreadyVoted(membershipNumber);
-
+    
     if (hasVoted) {
-      return res.json({
-        success: false,
-        message: 'This membership number has already voted.'
+      return res.json({ 
+        success: false, 
+        message: 'This membership number has already voted.' 
       });
     }
-
-    // Check if email has already been used to vote
-    const emailUsed = await hasEmailAlreadyVoted(email);
-
-    if (emailUsed) {
-      return res.json({
-        success: false,
-        message: 'This validation token has already been used. Please contact an administrator if you need assistance.'
-      });
+    
+    // Check if email has already been used to vote (only if email is provided)
+    if (email) {
+      const emailUsed = await hasEmailAlreadyVoted(email);
+      
+      if (emailUsed) {
+        return res.json({ 
+          success: false, 
+          message: 'This email address has already been used to vote. Please use a different email or leave it blank.' 
+        });
+      }
     }
-
-    const recorded = await recordVote({ membershipNumber, phoneNumber, email, votes });
-
+    
+    const recorded = await recordVote({ membershipNumber, phoneNumber, fullName, email, votes });
+    
     if (!recorded) {
-      return res.status(500).json({
-        success: false,
-        message: 'Failed to record your vote. Please try again.'
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to record your vote. Please try again.' 
       });
     }
-
-    // Send vote confirmation email
-    const emailSent = await sendVoteConfirmationEmail(email, membershipNumber);
-
-    if (!emailSent) {
-      console.log('Failed to send vote confirmation email');
+    
+    // Send vote confirmation email if email is provided
+    if (email) {
+      const emailSent = await sendVoteConfirmationEmail(email, membershipNumber, fullName);
+      
+      if (!emailSent) {
+        console.log('Failed to send vote confirmation email');
+      }
     }
-
-    return res.json({
-      success: true,
-      message: 'Your vote has been recorded successfully.'
+    
+    return res.json({ 
+      success: true, 
+      message: 'Your vote has been recorded successfully.' + (email ? ' A confirmation email has been sent to your email address.' : '') 
     });
   } catch (error) {
     console.error('Vote submission error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'An error occurred while submitting your vote. Please try again.'
+    return res.status(500).json({ 
+      success: false, 
+      message: 'An error occurred while submitting your vote. Please try again.' 
     });
   }
 });
@@ -1046,11 +1078,54 @@ app.get('/api/export-votes', requireAuth, async (req, res) => {
 
     // Flatten the votes data for Excel export
     const flattenedVotes = votes.map(vote => {
+      // Format the timestamp to display in Africa/Nairobi timezone
+      let formattedTimestamp = vote.timestamp;
+      
+      // If the timestamp doesn't already have the +03:00 timezone indicator
+      if (vote.timestamp && !vote.timestamp.includes('+03:00')) {
+        try {
+          const date = new Date(vote.timestamp);
+          // Format with explicit Nairobi timezone
+          const options = {
+            timeZone: 'Africa/Nairobi',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false
+          };
+          
+          const nairobiTimeString = new Intl.DateTimeFormat('en-GB', options).format(date);
+          const [datePart, timePart] = nairobiTimeString.split(', ');
+          const [day, month, year] = datePart.split('/');
+          const [hour, minute, second] = timePart.split(':');
+          
+          formattedTimestamp = `${year}-${month}-${day} ${hour}:${minute}:${second} (EAT)`;
+        } catch (e) {
+          console.error('Error formatting timestamp:', e);
+          formattedTimestamp = vote.timestamp + ' (UTC)';
+        }
+      } else {
+        // Already in Nairobi time format
+        try {
+          const parts = vote.timestamp.split('T');
+          const datePart = parts[0];
+          const timePart = parts[1].split('+')[0];
+          formattedTimestamp = `${datePart} ${timePart} (EAT)`;
+        } catch (e) {
+          console.error('Error parsing Nairobi timestamp:', e);
+          formattedTimestamp = vote.timestamp;
+        }
+      }
+      
       const flatVote = {
         membershipNumber: vote.membershipNumber,
+        fullName: vote.fullName || 'Not provided',
         phoneNumber: vote.phoneNumber,
-        email: vote.email,
-        timestamp: vote.timestamp
+        email: vote.email || 'Not provided',
+        timestamp: formattedTimestamp
       };
 
       // Add only active positions as columns
@@ -1068,6 +1143,7 @@ app.get('/api/export-votes', requireAuth, async (req, res) => {
     // Get all possible fields (columns)
     const fields = [
       'membershipNumber', 
+      'fullName',
       'phoneNumber', 
       'email', 
       'timestamp', 
@@ -1076,7 +1152,7 @@ app.get('/api/export-votes', requireAuth, async (req, res) => {
 
     // Add headers
     worksheet.columns = fields.map(field => ({
-      header: field,
+      header: field === 'timestamp' ? 'Timestamp (Nairobi Time)' : field,
       key: field,
       width: field === 'timestamp' ? 30 : 20
     }));
@@ -1113,13 +1189,38 @@ app.get('/api/export-votes', requireAuth, async (req, res) => {
   }
 });
 
-// Helper function to format column names for the Excel export
-function formatColumnName(camelCase) {
-  // Convert camelCase to Title Case with spaces
-  return camelCase
-    .replace(/([A-Z])/g, ' $1')
-    .replace(/^./, str => str.toUpperCase());
-}
+// API endpoint to reset voter register (admin only)
+app.post('/api/reset-register', requireAuth, async (req, res) => {
+  try {
+    // Check all possible file names and extensions
+    const possibleFiles = [
+      path.join(uploadsDirectory, 'voter_register.xlsx'),
+      path.join(uploadsDirectory, 'voter_register.xls'),
+      path.join(uploadsDirectory, 'voter_register.csv')
+    ];
+    
+    // Delete each file if it exists
+    let filesDeleted = 0;
+    for (const filePath of possibleFiles) {
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+        console.log(`Deleted voter register file: ${filePath}`);
+        filesDeleted++;
+      }
+    }
+    
+    if (filesDeleted > 0) {
+      console.log('Voter register reset by admin');
+      return res.json({ success: true, message: 'Voter register has been cleared successfully.' });
+    } else {
+      console.log('No voter register files found to delete');
+      return res.json({ success: true, message: 'No voter register files found to delete.' });
+    }
+  } catch (error) {
+    console.error('Error resetting voter register:', error);
+    return res.status(500).json({ success: false, message: 'Failed to reset voter register.' });
+  }
+});
 
 // API endpoint to change admin password
 app.post('/api/change-password', requireAuth, async (req, res) => {
@@ -1163,6 +1264,48 @@ app.post('/api/change-password', requireAuth, async (req, res) => {
     return res.status(500).json({ success: false, message: 'An error occurred while changing the password' });
   }
 });
+
+// API endpoint to reset votes data (admin only)
+app.post('/api/reset-votes', requireAuth, async (req, res) => {
+  try {
+    // Reset votes to empty array
+    fs.writeJsonSync(votesFile, []);
+    console.log('Votes data reset by admin');
+    return res.json({ success: true, message: 'All votes have been cleared successfully.' });
+  } catch (error) {
+    console.error('Error resetting votes:', error);
+    return res.status(500).json({ success: false, message: 'Failed to reset votes data.' });
+  }
+});
+
+// API endpoint to reset admin accounts (admin only)
+app.post('/api/reset-admin', requireAuth, async (req, res) => {
+  try {
+    // Re-initialize admin accounts
+    initializeAdmin();
+    console.log('Admin accounts reset');
+    
+    // Log out the current user since their account may have changed
+    req.session.destroy(err => {
+      if (err) {
+        console.error('Session destruction error:', err);
+        return res.status(500).json({ success: false, message: 'Error during logout.' });
+      }
+      return res.json({ success: true, message: 'Admin accounts reset successfully. You will be logged out.' });
+    });
+  } catch (error) {
+    console.error('Error resetting admin accounts:', error);
+    return res.status(500).json({ success: false, message: 'Failed to reset admin accounts.' });
+  }
+});
+
+// Helper function to format column names for the Excel export
+function formatColumnName(camelCase) {
+  // Convert camelCase to Title Case with spaces
+  return camelCase
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/^./, str => str.toUpperCase());
+}
 
 // Start the server
 app.listen(port, '0.0.0.0', () => {

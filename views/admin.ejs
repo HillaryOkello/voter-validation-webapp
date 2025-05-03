@@ -53,6 +53,45 @@
                 <div id="passwordAlert" class="alert mt-3 hidden"></div>
             </form>
         </div>
+
+        <div class="form-container mt-4">
+            <h3>System Management</h3>
+            <p class="text-danger">Warning: These actions cannot be undone. Use with caution.</p>
+            
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <div class="card">
+                        <div class="card-body">
+                            <h5 class="card-title">Reset Votes</h5>
+                            <p class="card-text">Clear all votes from the system. This will delete all voting data permanently.</p>
+                            <button id="resetVotesBtn" class="btn btn-danger">Reset All Votes</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="col-md-4 mb-3">
+                    <div class="card">
+                        <div class="card-body">
+                            <h5 class="card-title">Reset Voter Register</h5>
+                            <p class="card-text">Delete the uploaded voter register file. You'll need to upload a new one.</p>
+                            <button id="resetRegisterBtn" class="btn btn-danger">Reset Voter Register</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="col-md-4 mb-3">
+                    <div class="card">
+                        <div class="card-body">
+                            <h5 class="card-title">Reset Admin Accounts</h5>
+                            <p class="card-text">Reset admin accounts to default. You will be logged out.</p>
+                            <button id="resetAdminBtn" class="btn btn-danger">Reset Admin Accounts</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="resetAlert" class="alert mt-3 hidden"></div>
+        </div>
     </div>
 
     <div class="col-md-7">
@@ -154,6 +193,10 @@
         const resultsContainer = document.getElementById('resultsContainer');
         const passwordForm = document.getElementById('passwordForm');
         const passwordAlert = document.getElementById('passwordAlert');
+        const resetVotesBtn = document.getElementById('resetVotesBtn');
+        const resetAdminBtn = document.getElementById('resetAdminBtn');
+        const resetRegisterBtn = document.getElementById('resetRegisterBtn');
+        const resetAlert = document.getElementById('resetAlert');
 
         // Chart objects
         let participationChart = null;
@@ -235,6 +278,72 @@
 
         refreshStats.addEventListener('click', loadStats);
 
+        resetVotesBtn.addEventListener('click', function() {
+            if (confirm('Are you sure you want to reset all votes? This action cannot be undone.')) {
+                fetch('/api/reset-votes', {
+                    method: 'POST'
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showResetAlert('Votes have been reset.', 'success');
+                        loadStats();
+                    } else {
+                        showResetAlert(data.message, 'danger');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    showResetAlert('An error occurred while resetting votes. Please try again.', 'danger');
+                });
+            }
+        });
+
+        resetAdminBtn.addEventListener('click', function() {
+            if (confirm('Are you sure you want to reset admin accounts? You will be logged out.')) {
+                fetch('/api/reset-admin', {
+                    method: 'POST'
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showResetAlert('Admin accounts have been reset. You will be logged out.', 'success');
+                        setTimeout(function() {
+                            window.location.href = '/logout';
+                        }, 2000);
+                    } else {
+                        showResetAlert(data.message, 'danger');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    showResetAlert('An error occurred while resetting admin accounts. Please try again.', 'danger');
+                });
+            }
+        });
+
+        resetRegisterBtn.addEventListener('click', function() {
+            if (confirm('Are you sure you want to reset the voter register? You will need to upload a new one.')) {
+                fetch('/api/reset-register', {
+                    method: 'POST'
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showResetAlert('Voter register has been reset.', 'success');
+                        // Reload statistics after successful reset
+                        loadStats();
+                    } else {
+                        showResetAlert(data.message, 'danger');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    showResetAlert('An error occurred while resetting the voter register. Please try again.', 'danger');
+                });
+            }
+        });
+
         function showUploadAlert(message, type) {
             uploadAlert.textContent = message;
             uploadAlert.className = `alert alert-${type} mt-3`;
@@ -243,6 +352,11 @@
         function showPasswordAlert(message, type) {
             passwordAlert.textContent = message;
             passwordAlert.className = `alert alert-${type} mt-3`;
+        }
+
+        function showResetAlert(message, type) {
+            resetAlert.textContent = message;
+            resetAlert.className = `alert alert-${type} mt-3`;
         }
 
         function loadStats() {
